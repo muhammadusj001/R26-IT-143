@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 3
+names: ['Animal', 'Person', 'Surf board']
+
+roboflow:
+  workspace: minisolar
+  project: people-swimming-cbmtd
+  version: 1
+  license: Public Domain
+  url: https://universe.roboflow.com/minisolar/people-swimming-cbmtd/dataset/1

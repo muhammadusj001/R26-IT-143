@@ -1,52 +1,43 @@
 """
-Fix and validate label data in the dataset.
+Fix Label Classes Script
+Makes all class labels = 0 (swimmer)
+SLIIT FYP - Component 1
 """
 
-import json
-import os
 from pathlib import Path
 
+BASE_DIR = Path(r"C:\Users\muham\Desktop\Final_Year_Project\component1_crowd_maintenance")
+COMBINED = BASE_DIR / "datasets" / "combined_dataset"
 
-def fix_labels(dataset_path, output_path=None):
-    """
-    Fix and validate labels in the dataset.
-    
-    Args:
-        dataset_path: Path to dataset with labels
-        output_path: Path to save fixed labels (optional)
-    """
-    if output_path is None:
-        output_path = dataset_path
-    
-    Path(output_path).mkdir(parents=True, exist_ok=True)
-    
-    print(f"Processing labels from: {dataset_path}")
-    
-    # Placeholder for label fixing logic
-    # This would include validation, format conversion, etc.
-    
-    print(f"Fixed labels saved to: {output_path}")
+print("\n" + "="*50)
+print("Fixing label files...")
+print("="*50)
 
+fixed = 0
+skipped = 0
 
-def validate_labels(labels):
-    """
-    Validate label format and content.
-    
-    Args:
-        labels: Dictionary containing labels
-        
-    Returns:
-        Boolean indicating if labels are valid
-    """
-    required_fields = ['id', 'class', 'confidence']
-    for label in labels:
-        for field in required_fields:
-            if field not in label:
-                print(f"Missing field: {field}")
-                return False
-    return True
+for split in ['train', 'valid', 'test']:
+    labels_dir = COMBINED / split / 'labels'
+    if not labels_dir.exists():
+        continue
 
+    for lbl_file in labels_dir.glob('*.txt'):
+        lines = lbl_file.read_text().strip().splitlines()
+        new_lines = []
 
-if __name__ == "__main__":
-    # Example usage
-    fix_labels("./datasets/raw_labels")
+        for line in lines:
+            parts = line.strip().split()
+            if len(parts) >= 5:
+                parts[0] = '0'  # Set class to 0 = swimmer
+                new_lines.append(' '.join(parts))
+
+        if new_lines:
+            lbl_file.write_text('\n'.join(new_lines))
+            fixed += 1
+        else:
+            skipped += 1
+
+print(f"  ✅ Fixed:   {fixed} label files")
+print(f"  ⚠️  Skipped: {skipped} empty files")
+print("\n  ✅ All labels set to class 0 (swimmer)")
+print("  ✅ Ready for training!")
