@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-05-08T20:39:47.177800",
+  "bather_load": 210,
+  "recommendations": [
+    {
+      "action": "Chlorine Dose",
+      "priority": "CRITICAL \ud83d\udd34",
+      "overdue_by": 190
+    },
+    {
+      "action": "Skimmer Clean",
+      "priority": "CRITICAL \ud83d\udd34",
+      "overdue_by": 180
+    },
+    {
+      "action": "Filter Backwash",
+      "priority": "CRITICAL \ud83d\udd34",
+      "overdue_by": 160
+    },
+    {
+      "action": "Shock Treatment",
+      "priority": "CRITICAL \ud83d\udd34",
+      "overdue_by": 110
+    },
+    {
+      "action": "Deep Clean",
+      "priority": "MEDIUM \ud83d\udfe1",
+      "overdue_by": 10
+    }
+  ]
+}

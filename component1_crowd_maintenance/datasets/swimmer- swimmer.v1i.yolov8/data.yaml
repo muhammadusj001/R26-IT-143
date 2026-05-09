@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['human']
+
+roboflow:
+  workspace: lyx-limyixian-gmail-com
+  project: swimmer--swimmer
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/lyx-limyixian-gmail-com/swimmer--swimmer/dataset/1
