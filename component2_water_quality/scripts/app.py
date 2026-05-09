@@ -6,11 +6,11 @@ import joblib
 # LOAD TRAINED FILES
 # ============================================================
 
-model = joblib.load("water_quality_model.pkl")
+model = joblib.load("../models/water_quality_model.pkl")
 
-scaler = joblib.load("scaler.pkl")
+scaler = joblib.load("../models/scaler.pkl")
 
-label_encoder = joblib.load("label_encoder.pkl")
+label_encoder = joblib.load("../models/label_encoder.pkl")
 
 print("✅ Model Loaded Successfully")
 
