@@ -83,5 +83,5 @@ void loop() {
   
   Serial.println("-------------------");
 
-  delay(3000); // 3-second interval for readability
+  delay(6000); // 3-second interval for readability
 }
