@@ -5,3 +5,4 @@ __pycache__/
 runs/
 *.pyc
 .env
+.DS_Stores
