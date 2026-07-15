@@ -1,110 +1,188 @@
-import gradio as gr
+import serial
+import time
 import numpy as np
+import pandas as pd
 import joblib
+import gradio as gr
 
-# ============================================================
-# LOAD TRAINED FILES
-# ============================================================
+# ==========================================================
+# LOAD MODEL
+# ==========================================================
 
 model = joblib.load("../models/water_quality_model.pkl")
-
 scaler = joblib.load("../models/scaler.pkl")
-
 label_encoder = joblib.load("../models/label_encoder.pkl")
 
 print("✅ Model Loaded Successfully")
 
-# ============================================================
-# PREDICTION FUNCTION
-# ============================================================
+# ==========================================================
+# CONNECT TO ARDUINO
+# ==========================================================
 
-def predict_water_quality(
-    ph,
-    temperature,
-    chlorine,
-    turbidity,
-    tds
-):
+arduino = serial.Serial("/dev/cu.usbmodem21401", 9600, timeout=2)
 
-    # Create input array
-    sample = np.array([
-        [ph, temperature, chlorine, turbidity, tds]
-    ])
+time.sleep(3)
 
-    # Scale values
+# Clear startup messages
+arduino.reset_input_buffer()
+
+print("✅ Arduino Connected")
+
+# ==========================================================
+# READ SENSOR VALUES
+# ==========================================================
+
+def read_sensor():
+
+    while True:
+
+        line = arduino.readline().decode(errors="ignore").strip()
+
+        if line == "":
+            continue
+
+        print("Received:", line)
+
+        if line == "System Ready":
+            continue
+
+        values = line.split(",")
+
+        if len(values) != 5:
+            continue
+
+        try:
+
+            ph = float(values[0])
+            temperature = float(values[1])
+            chlorine = float(values[2])
+            turbidity = float(values[3])
+            tds = float(values[4])
+
+            return ph, temperature, chlorine, turbidity, tds
+
+        except ValueError:
+            continue
+
+
+# ==========================================================
+# PREDICTION
+# ==========================================================
+
+def predict():
+
+    ph, temperature, chlorine, turbidity, tds = read_sensor()
+
+    sample = pd.DataFrame(
+        [[ph, temperature, chlorine, turbidity, tds]],
+        columns=[
+            "pH",
+            "Temperature",
+            "Chlorine",
+            "Turbidity",
+            "TDS"
+        ]
+    )
+
     sample_scaled = scaler.transform(sample)
 
-    # Predict
     prediction = model.predict(sample_scaled)
 
-    # Decode prediction
-    status = label_encoder.inverse_transform(prediction)
+    status = label_encoder.inverse_transform(prediction)[0]
 
-    result = status[0]
+    if status == "SAFE":
+        result = "🟢 SAFE\n\nWater quality is suitable."
 
-    # Extra message
-    if result == "SAFE":
-        message = "✅ Water Quality is SAFE"
-
-    elif result == "WARNING":
-        message = "⚠️ Water Quality is WARNING"
+    elif status == "WARNING":
+        result = "🟡 WARNING\n\nWater quality needs attention."
 
     else:
-        message = "🚨 Water Quality is CRITICAL"
+        result = "🔴 CRITICAL\n\nWater quality is unsafe."
 
-    return message
+    return (
+        ph,
+        temperature,
+        chlorine,
+        turbidity,
+        tds,
+        result
+    )
 
-# ============================================================
-# GRADIO UI
-# ============================================================
 
-interface = gr.Interface(
-    fn=predict_water_quality,
+# ==========================================================
+# UI
+# ==========================================================
 
-    inputs=[
+with gr.Blocks(
+    title="AI Water Quality Monitoring",
+    theme=gr.themes.Soft()
+) as demo:
 
-        gr.Number(
-            label="pH Value",
-            value=7.5
-        ),
+    gr.Markdown(
+        """
+# 🌊 AI Water Quality Monitoring System
 
-        gr.Number(
-            label="Temperature (°C)",
-            value=28
-        ),
+### Arduino + Machine Learning + Gradio Dashboard
+"""
+    )
 
-        gr.Number(
-            label="Chlorine (ppm)",
-            value=2.0
-        ),
+    with gr.Row():
 
-        gr.Number(
-            label="Turbidity (NTU)",
-            value=0.8
-        ),
-
-        gr.Number(
-            label="TDS (ppm)",
-            value=400
+        ph_box = gr.Number(
+            label="🧪 pH",
+            interactive=False
         )
 
-    ],
+        temp_box = gr.Number(
+            label="🌡 Temperature (°C)",
+            interactive=False
+        )
 
-    outputs=gr.Textbox(
-        label="Prediction Result"
-    ),
+        chlorine_box = gr.Number(
+            label="🧴 Chlorine (ppm)",
+            interactive=False
+        )
 
-    title="🌊 Pool Water Quality Prediction System",
+    with gr.Row():
 
-    description="""
-Enter pool water sensor values to predict water quality status using Machine Learning.
-""",
+        turbidity_box = gr.Number(
+            label="💧 Turbidity (NTU)",
+            interactive=False
+        )
 
-    theme="soft"
-)
+        tds_box = gr.Number(
+            label="🧂 TDS (ppm)",
+            interactive=False
+        )
 
-# ============================================================
-# RUN APP
-# ============================================================
+    prediction_box = gr.Textbox(
+        label="🤖 AI Prediction",
+        lines=4,
+        interactive=False
+    )
 
-interface.launch()
+    check_button = gr.Button(
+        "🔄 Check Water Quality",
+        variant="primary"
+    )
+
+    check_button.click(
+        fn=predict,
+        outputs=[
+            ph_box,
+            temp_box,
+            chlorine_box,
+            turbidity_box,
+            tds_box,
+            prediction_box
+        ]
+    )
+
+    gr.Markdown(
+        """
+---
+Developed using **Arduino • Machine Learning • Gradio**
+"""
+    )
+
+demo.launch()
