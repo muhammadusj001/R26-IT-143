@@ -1,0 +1,121 @@
+/* R26-IT-143 — Unified Dashboard styles (dark theme, extends Component 3's style) */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #0d1520; color: #e6edf3; min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 22px; background: #111c2b; border-bottom: 1px solid #1f2f45;
+}
+.header-left { display: flex; align-items: center; gap: 14px; }
+.logo { font-size: 30px; }
+.header-title h1 { font-size: 19px; }
+.header-title p { font-size: 12px; color: #7d8da1; }
+.header-right { display: flex; align-items: center; gap: 18px; }
+
+.risk-badge {
+  padding: 6px 16px; border-radius: 18px; font-weight: 700; font-size: 13px;
+  background: #1d3a26; color: #4ade80;
+}
+.risk-badge.elevated { background: #3a2f14; color: #facc15; }
+.risk-badge.high     { background: #40230f; color: #fb923c; }
+.risk-badge.emergency{ background: #401515; color: #f87171; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+
+.connection-status { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; }
+.status-dot.connected { background: #4ade80; }
+.status-dot.disconnected { background: #f87171; }
+
+/* ── Layout ─────────────────────────────────────────────── */
+.main-grid {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px; padding: 16px;
+}
+@media (max-width: 1000px) { .main-grid { grid-template-columns: 1fr; } }
+.left-col, .right-col { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── Cards ──────────────────────────────────────────────── */
+.card {
+  background: #111c2b; border: 1px solid #1f2f45; border-radius: 12px;
+  padding: 14px 16px;
+}
+.card.flash { border-color: #f87171; box-shadow: 0 0 18px #f8717155; }
+.card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+.card-header h2 { font-size: 15px; }
+.card-header .sub { font-size: 11px; color: #7d8da1; font-weight: 400; }
+.model-status { font-size: 11px; color: #7d8da1; }
+
+/* Camera */
+.camera-container {
+  position: relative; background: #060b12; border-radius: 8px;
+  min-height: 320px; display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+#cameraFeed { width: 100%; display: block; }
+.camera-overlay {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; color: #7d8da1; font-size: 14px;
+  background: #060b12;
+}
+.camera-meta {
+  display: flex; gap: 22px; margin-top: 10px; font-size: 13px; color: #9fb0c3;
+}
+
+.btn {
+  border: 0; border-radius: 7px; padding: 8px 16px; font-weight: 600;
+  cursor: pointer; font-size: 13px;
+}
+.btn:disabled { opacity: .4; cursor: default; }
+.btn-start { background: #16a34a; color: #fff; margin-right: 6px; }
+.btn-stop  { background: #dc2626; color: #fff; }
+
+/* Stats */
+.stat-row { display: flex; gap: 10px; }
+.stat {
+  flex: 1; background: #0d1725; border-radius: 8px; padding: 10px;
+  text-align: center;
+}
+.stat-val { display: block; font-size: 22px; font-weight: 700; }
+.stat-val.ok { color: #4ade80; }
+.stat-val.danger { color: #f87171; }
+.stat-label { font-size: 11px; color: #7d8da1; }
+.stat-row.wq .stat-val { font-size: 17px; }
+
+.recommendation {
+  margin-top: 10px; font-size: 13px; color: #c3d0de;
+  background: #0d1725; padding: 9px 11px; border-radius: 8px;
+}
+
+.pill {
+  display: inline-block; padding: 3px 12px; border-radius: 12px;
+  font-size: 12px; font-weight: 700;
+}
+.pill.safe   { background: #1d3a26; color: #4ade80; }
+.pill.warn   { background: #3a2f14; color: #facc15; }
+.pill.danger { background: #401515; color: #f87171; }
+
+/* Decision engine */
+.decision-grid { font-size: 13px; }
+.notes { margin: 10px 0 0 18px; color: #9fb0c3; }
+.notes li { margin-bottom: 5px; }
+
+/* Alerts */
+.alert-list { list-style: none; max-height: 220px; overflow-y: auto; }
+.alert-item {
+  padding: 7px 10px; border-radius: 7px; margin-bottom: 6px; font-size: 12.5px;
+  background: #0d1725; border-left: 3px solid #facc15;
+}
+.alert-item.danger { border-left-color: #f87171; }
+.muted { color: #62738a; font-size: 13px; list-style: none; }
+
+/* Next.js additions */
+.loading { display: flex; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 100vh; gap: 8px; }

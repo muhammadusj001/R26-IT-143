@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 6
+names: ['aluminium foil', 'ball', 'bottle', 'juice', 'leaf', 'thermocol']
+
+roboflow:
+  workspace: bannari-mman-institute-of-technology
+  project: swimming-pool-f2wcg
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/bannari-mman-institute-of-technology/swimming-pool-f2wcg/dataset/1
