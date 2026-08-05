@@ -1,0 +1,11 @@
+# YOLO training dataset configuration for swimmer detection
+# Component 1: Crowd-Aware Maintenance
+
+path: .  # relative path (was a hardcoded Windows path)
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 1
+names:
+  - swimmer

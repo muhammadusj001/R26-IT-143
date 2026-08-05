@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pool Garbage Detection Platform</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+
+        :root {
+            --bg: #eef4f7;
+            --ink: #102330;
+            --muted: #5d7280;
+            --panel: rgba(255, 255, 255, 0.72);
+            --panel-strong: #ffffff;
+            --line: rgba(16, 35, 48, 0.08);
+            --teal: #127596;
+            --teal-deep: #0b566f;
+            --lime: #cfe889;
+            --sky: #d8e8ff;
+            --rose: #ffe2dd;
+            --gold: #ffeec5;
+            --shadow: 0 24px 60px rgba(14, 35, 48, 0.12);
+            --radius-xl: 32px;
+            --radius-lg: 24px;
+            --radius-md: 18px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Manrope", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(18, 117, 150, 0.14), transparent 28%),
+                radial-gradient(circle at 85% 18%, rgba(207, 232, 137, 0.24), transparent 18%),
+                linear-gradient(180deg, #f8fbfd 0%, var(--bg) 100%);
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .page {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 18px;
+            padding: 18px 22px;
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.64);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(18px);
+            box-shadow: var(--shadow);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-mark {
+            width: 50px;
+            height: 50px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: #ffffff;
+            background: linear-gradient(135deg, var(--teal) 0%, var(--teal-deep) 100%);
+            box-shadow: 0 14px 30px rgba(18, 117, 150, 0.28);
+        }
+
+        .brand h1,
+        .brand p {
+            margin: 0;
+        }
+
+        .brand h1 {
+            font-size: 1rem;
+        }
+
+        .brand p {
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .status-pill,
+        .mini-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .status-pill {
+            background: rgba(207, 232, 137, 0.34);
+            color: #41621d;
+        }
+
+        .mini-pill {
+            background: rgba(18, 117, 150, 0.08);
+            color: var(--teal-deep);
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .hero-copy,
+        .hero-preview,
+        .feature-card,
+        .info-panel,
+        .cta-panel {
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow);
+        }
+
+        .hero-copy {
+            padding: 36px;
+            background:
+                linear-gradient(135deg, rgba(10, 86, 111, 0.96) 0%, rgba(18, 117, 150, 0.92) 100%);
+            color: #ffffff;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-copy::before,
+        .hero-preview::before {
+            content: "";
+            position: absolute;
+            inset: auto auto -40px -40px;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+            filter: blur(8px);
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 18px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .hero-copy h2 {
+            margin: 0;
+            max-width: 12ch;
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(2.6rem, 6vw, 4.8rem);
+            line-height: 0.96;
+            letter-spacing: -0.05em;
+        }
+
+        .hero-copy p {
+            max-width: 60ch;
+            margin: 22px 0 0;
+            color: rgba(255, 255, 255, 0.78);
+            font-size: 1.04rem;
+            line-height: 1.7;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 28px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 52px;
+            padding: 0 22px;
+            border-radius: 16px;
+            font-weight: 800;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+        }
+
+        .button.primary {
+            color: #0d2e3d;
+            background: linear-gradient(135deg, #dcf5a8 0%, #cfe889 100%);
+            box-shadow: 0 14px 28px rgba(18, 117, 150, 0.2);
+        }
+
+        .button.secondary {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .hero-meta {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            margin-top: 30px;
+            padding-top: 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.16);
+        }
+
+        .hero-meta strong,
+        .metric-number {
+            display: block;
+            font-size: 1.65rem;
+            font-weight: 800;
+        }
+
+        .hero-meta span,
+        .metric-label,
+        .panel-text {
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 0.94rem;
+        }
+
+        .hero-preview {
+            position: relative;
+            overflow: hidden;
+            padding: 24px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.94) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.82);
+        }
+
+        .preview-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .preview-header h3,
+        .section-header h3,
+        .cta-panel h3,
+        .info-panel h3 {
+            margin: 0;
+            font-size: 1.08rem;
+        }
+
+        .preview-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .preview-top {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .preview-block,
+        .signal-card,
+        .feature-card,
+        .info-panel,
+        .cta-panel {
+            background: var(--panel);
+            border: 1px solid rgba(255, 255, 255, 0.82);
+            backdrop-filter: blur(14px);
+        }
+
+        .preview-block {
+            min-height: 110px;
+            padding: 18px;
+            border-radius: 20px;
+        }
+
+        .preview-block p,
+        .feature-card p,
+        .info-panel p,
+        .signal-card p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .preview-block strong {
+            display: block;
+            margin-top: 12px;
+            font-size: 2rem;
+        }
+
+        .preview-stage {
+            min-height: 290px;
+            padding: 18px;
+            border-radius: 24px;
+            background: linear-gradient(180deg, #1d2c3a 0%, #0e1b25 100%);
+            color: #ffffff;
+        }
+
+        .stage-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            font-size: 0.92rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .stage-screen {
+            position: relative;
+            min-height: 220px;
+            border-radius: 20px;
+            background:
+                radial-gradient(circle at 30% 28%, rgba(75, 139, 170, 0.34), transparent 12%),
+                radial-gradient(circle at 68% 52%, rgba(75, 139, 170, 0.26), transparent 12%),
+                linear-gradient(180deg, #1f3343 0%, #152633 100%);
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .stage-screen::before {
+            content: "";
+            position: absolute;
+            inset: 18% 20%;
+            border-radius: 24px;
+            background: rgba(36, 105, 111, 0.34);
+            border: 4px solid rgba(21, 80, 79, 0.36);
+            box-shadow: inset 0 0 0 10px rgba(255, 255, 255, 0.02);
+        }
+
+        .stage-screen::after {
+            content: "AI live monitoring";
+            position: absolute;
+            left: 16px;
+            top: 16px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.36);
+            color: #ffffff;
+            font-size: 0.84rem;
+            font-weight: 800;
+        }
+
+        .signal-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .signal-card {
+            padding: 22px;
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .signal-card strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 1.15rem;
+        }
+
+        .section {
+            margin-top: 18px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 14px;
+            padding: 0 2px;
+        }
+
+        .section-header p {
+            margin: 6px 0 0;
+            color: var(--muted);
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .feature-card {
+            padding: 24px;
+            border-radius: 26px;
+            box-shadow: var(--shadow);
+        }
+
+        .feature-icon {
+            width: 54px;
+            height: 54px;
+            margin-bottom: 18px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            font-weight: 800;
+            color: #ffffff;
+            background: linear-gradient(135deg, var(--teal) 0%, var(--teal-deep) 100%);
+        }
+
+        .feature-card h4 {
+            margin: 0 0 8px;
+            font-size: 1.08rem;
+        }
+
+        .feature-card ul {
+            margin: 16px 0 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            gap: 10px;
+        }
+
+        .feature-card li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--ink);
+            font-size: 0.95rem;
+        }
+
+        .feature-card li::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--teal);
+            flex: 0 0 auto;
+        }
+
+        .bottom-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.05fr);
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .info-panel,
+        .cta-panel {
+            padding: 28px;
+        }
+
+        .metrics-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .metric-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(16, 35, 48, 0.06);
+        }
+
+        .metric-row p,
+        .metric-row strong {
+            margin: 0;
+        }
+
+        .metric-row p {
+            color: var(--muted);
+        }
+
+        .cta-panel {
+            background:
+                linear-gradient(135deg, rgba(216, 232, 255, 0.92) 0%, rgba(255, 255, 255, 0.94) 55%, rgba(255, 238, 197, 0.92) 100%);
+        }
+
+        .cta-panel p {
+            margin: 10px 0 0;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .cta-stack {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 22px;
+        }
+
+        .cta-note {
+            margin-top: 20px;
+            padding: 16px 18px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(16, 35, 48, 0.06);
+        }
+
+        .footer {
+            margin-top: 18px;
+            padding: 20px 6px 8px;
+            color: var(--muted);
+            font-size: 0.92rem;
+            text-align: center;
+        }
+
+        @media (max-width: 1100px) {
+            .hero,
+            .bottom-grid,
+            .feature-grid,
+            .signal-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .preview-top {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .page {
+                padding: 14px;
+            }
+
+            .topbar,
+            .hero-copy,
+            .hero-preview,
+            .feature-card,
+            .info-panel,
+            .cta-panel {
+                border-radius: 24px;
+            }
+
+            .topbar,
+            .section-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .hero-copy {
+                padding: 28px 22px;
+            }
+
+            .preview-top {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-actions,
+            .cta-stack {
+                width: 100%;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark">PG</div>
+                <div>
+                    <h1>Pool Garbage Detection Platform</h1>
+                    <p>Intelligent monitoring for safer, cleaner swimming pools</p>
+                </div>
+            </div>
+            <div class="top-actions">
+                <div class="status-pill"><span class="dot"></span><span>System ready</span></div>
+                <div class="mini-pill">{{ supported_uploads }}</div>
+            </div>
+        </header>
+
+        <section class="hero">
+            <div class="hero-copy">
+                <div class="eyebrow"><span class="dot"></span><span>AI-powered pool cleanliness intelligence</span></div>
+                <h2>Detect garbage before it becomes a safety issue.</h2>
+                <p>This system combines a trained YOLO model, live monitoring, image analysis, and video review to help pool operators detect visible garbage quickly and take immediate action.</p>
+                <div class="hero-actions">
+                    <a class="button primary" href="{{ url_for('detect_media') }}">Launch Detection Console</a>
+                    <a class="button secondary" href="#features">Explore Features</a>
+                </div>
+                <div class="hero-meta">
+                    <div>
+                        <strong>{{ garbage_classes|length }}</strong>
+                        <span>garbage classes watched</span>
+                    </div>
+                    <div>
+                        <strong>0.25</strong>
+                        <span>detection confidence threshold</span>
+                    </div>
+                    <div>
+                        <strong>Live</strong>
+                        <span>camera monitoring support</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hero-preview">
+                <div class="preview-header">
+                    <div>
+                        <h3>Command Centre Preview</h3>
+                        <p style="margin: 6px 0 0; color: var(--muted);">A polished detection workspace is ready behind the landing page.</p>
+                    </div>
+                    <div class="mini-pill">Custom model active</div>
+                </div>
+                <div class="preview-grid">
+                    <div class="preview-top">
+                        <div class="preview-block" style="background: var(--rose);">
+                            <p>Alert engine</p>
+                            <strong>Instant</strong>
+                        </div>
+                        <div class="preview-block" style="background: var(--gold);">
+                            <p>Upload mode</p>
+                            <strong>Image + Video</strong>
+                        </div>
+                        <div class="preview-block" style="background: #e5f4d5;">
+                            <p>Model</p>
+                            <strong>YOLO</strong>
+                        </div>
+                    </div>
+                    <div class="preview-stage">
+                        <div class="stage-top">
+                            <span>Pool zone monitoring</span>
+                            <span>Result overlays + alerts</span>
+                        </div>
+                        <div class="stage-screen"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="signal-grid">
+                <div class="signal-card">
+                    <strong>Cleanliness Monitoring</strong>
+                    <p>Spot visible floating garbage in uploaded media and live camera feeds with a clear operator-focused interface.</p>
+                </div>
+                <div class="signal-card">
+                    <strong>Immediate Notification</strong>
+                    <p>Show a warning popup when garbage is detected and a reassuring clean-state notification when no garbage is present.</p>
+                </div>
+                <div class="signal-card">
+                    <strong>Operator Workflow</strong>
+                    <p>Move from landing page to detection console in one click, with saved annotated output ready for review.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="features">
+            <div class="section-header">
+                <div>
+                    <h3>Built for real monitoring workflows</h3>
+                    <p>A clean front-end entry point with practical features already wired to the backend.</p>
+                </div>
+                <div class="mini-pill">Modern landing experience</div>
+            </div>
+            <div class="feature-grid">
+                <article class="feature-card">
+                    <div class="feature-icon">01</div>
+                    <h4>Upload analysis</h4>
+                    <p>Review swimming pool photos and videos through the same detection pipeline used by the dashboard.</p>
+                    <ul>
+                        <li>Annotated result output</li>
+                        <li>Media-specific notification state</li>
+                        <li>Saved evidence in results storage</li>
+                    </ul>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon">02</div>
+                    <h4>Live camera review</h4>
+                    <p>The command centre includes a live camera stream that surfaces alerts directly on the monitored frame.</p>
+                    <ul>
+                        <li>Continuous visual monitoring</li>
+                        <li>Alert overlay on detection</li>
+                        <li>Dashboard-first operator view</li>
+                    </ul>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon">03</div>
+                    <h4>Focused class detection</h4>
+                    <p>The model is tuned to the garbage classes that matter for this pool-cleanliness use case.</p>
+                    <ul>
+                        {% for item in garbage_classes %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </article>
+            </div>
+        </section>
+
+        <section class="bottom-grid">
+            <article class="info-panel">
+                <h3>System snapshot</h3>
+                <p>The current application stack is already connected to the trained model and ready to enter the detection console.</p>
+                <div class="metrics-list">
+                    <div class="metric-row">
+                        <div>
+                            <strong>Model path</strong>
+                            <p>{{ model_path }}</p>
+                        </div>
+                        <div class="mini-pill">Connected</div>
+                    </div>
+                    <div class="metric-row">
+                        <div>
+                            <strong>Upload support</strong>
+                            <p>Image formats and common video formats</p>
+                        </div>
+                        <div class="mini-pill">Ready</div>
+                    </div>
+                    <div class="metric-row">
+                        <div>
+                            <strong>Dashboard access</strong>
+                            <p>/detect-media</p>
+                        </div>
+                        <div class="mini-pill">Available</div>
+                    </div>
+                </div>
+            </article>
+
+            <article class="cta-panel">
+                <h3>Enter the detection workspace</h3>
+                <p>Move into the command centre to analyze uploads, inspect processed results, and use the live monitoring panel. The landing page is just the front door; the operational tools are one click away.</p>
+                <div class="cta-stack">
+                    <a class="button primary" href="{{ url_for('detect_media') }}">Open Detection Console</a>
+                    <a class="button secondary" href="#features" style="color: var(--teal-deep); border-color: rgba(16, 35, 48, 0.1); background: rgba(255, 255, 255, 0.7);">Review Capabilities</a>
+                </div>
+                <div class="cta-note">
+                    <strong style="display: block; margin-bottom: 8px;">Professional front-door experience</strong>
+                    <span style="color: var(--muted); line-height: 1.6;">Users now land on a clean presentation page first, then intentionally enter the operational dashboard for detection work.</span>
+                </div>
+            </article>
+        </section>
+
+        <div class="footer">
+            Pool Garbage Detection Platform. Clean design in front, command-centre workflow behind it.
+        </div>
+    </div>
+</body>
+</html>
