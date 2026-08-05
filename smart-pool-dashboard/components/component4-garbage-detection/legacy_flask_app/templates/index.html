@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swimming Pool Garbage Detection</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+
+        :root {
+            --bg: #eef3f6;
+            --panel: #2f322d;
+            --panel-soft: #363932;
+            --panel-outline: rgba(255, 255, 255, 0.08);
+            --card-text: #f5f4ed;
+            --muted: #b7b6ab;
+            --accent: #1f7997;
+            --accent-strong: #0f6b8d;
+            --accent-soft: rgba(31, 121, 151, 0.18);
+            --good: #cde98d;
+            --good-text: #315b18;
+            --warn: #f6d28a;
+            --warn-text: #865c0f;
+            --danger: #f1b2ad;
+            --danger-text: #8e2624;
+            --info: #a4cdfd;
+            --info-text: #1a5398;
+            --white: #ffffff;
+            --shadow: 0 22px 44px rgba(9, 18, 28, 0.12);
+            --radius-xl: 26px;
+            --radius-lg: 20px;
+            --radius-md: 16px;
+            --radius-sm: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Manrope", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(31, 121, 151, 0.18), transparent 26%),
+                radial-gradient(circle at bottom right, rgba(164, 205, 253, 0.22), transparent 32%),
+                linear-gradient(180deg, #f7fafc 0%, var(--bg) 100%);
+            color: #13202c;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .dashboard-shell {
+            display: grid;
+            grid-template-columns: 270px minmax(0, 1fr);
+            gap: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 18px;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 18px;
+            align-self: start;
+            min-height: calc(100vh - 36px);
+            background: linear-gradient(180deg, #17384a 0%, #102833 100%);
+            color: var(--white);
+            border-radius: 28px;
+            padding: 28px 22px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-mark {
+            width: 54px;
+            height: 54px;
+            border-radius: 18px;
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06));
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            display: grid;
+            place-items: center;
+            font-size: 24px;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 1.05rem;
+            line-height: 1.35;
+        }
+
+        .brand p,
+        .sidebar-note,
+        .sidebar-section p,
+        .system-meta,
+        .footer-note {
+            margin: 0;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 0.92rem;
+        }
+
+        .system-meta {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.45;
+        }
+
+        .sidebar-section {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 22px;
+            padding: 18px;
+            backdrop-filter: blur(10px);
+        }
+
+        .sidebar-title {
+            margin: 0 0 12px;
+            font-size: 0.78rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .nav-links {
+            display: grid;
+            gap: 10px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            color: var(--white);
+            background: rgba(255, 255, 255, 0.04);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .nav-link:hover {
+            transform: translateX(3px);
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .nav-link span:last-child {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.82rem;
+        }
+
+        .chip-row,
+        .legend-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip,
+        .status-pill,
+        .metric-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 0.84rem;
+            font-weight: 700;
+        }
+
+        .chip {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--white);
+        }
+
+        .status-pill {
+            background: rgba(205, 233, 141, 0.2);
+            color: #d8f29d;
+        }
+
+        .status-dot,
+        .tiny-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+            flex: 0 0 auto;
+        }
+
+        .tiny-dot {
+            width: 8px;
+            height: 8px;
+        }
+
+        .main {
+            display: grid;
+            gap: 18px;
+        }
+
+        .hero {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 26px 28px;
+            border-radius: var(--radius-xl);
+            background: linear-gradient(135deg, #1f7997 0%, #1b6886 100%);
+            color: var(--white);
+            box-shadow: var(--shadow);
+        }
+
+        .hero-copy h2 {
+            margin: 0;
+            font-size: clamp(1.4rem, 2vw, 2rem);
+        }
+
+        .hero-copy p {
+            margin: 10px 0 0;
+            color: rgba(255, 255, 255, 0.78);
+            line-height: 1.5;
+        }
+
+        .hero-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .hero-clock {
+            padding: 12px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.1);
+            font-size: 1.2rem;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .metric-card,
+        .panel,
+        .summary-card {
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+        }
+
+        .metric-card {
+            background: var(--panel);
+            color: var(--card-text);
+            padding: 20px;
+            border: 1px solid var(--panel-outline);
+        }
+
+        .metric-card p,
+        .metric-card h3 {
+            margin: 0;
+        }
+
+        .metric-card p {
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .metric-value {
+            margin-top: 10px;
+            font-size: clamp(2rem, 3vw, 2.7rem);
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        .metric-tag {
+            margin-top: 12px;
+            width: fit-content;
+        }
+
+        .metric-tag.good {
+            background: #edf8d4;
+            color: var(--good-text);
+        }
+
+        .metric-tag.warn {
+            background: #fff0cf;
+            color: var(--warn-text);
+        }
+
+        .metric-tag.info {
+            background: #dfeeff;
+            color: var(--info-text);
+        }
+
+        .metric-tag.danger {
+            background: #ffe1dd;
+            color: var(--danger-text);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.8fr);
+            gap: 16px;
+        }
+
+        .panel {
+            background: var(--panel);
+            color: var(--card-text);
+            padding: 16px;
+            border: 1px solid var(--panel-outline);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        .panel-title {
+            margin: 0;
+            font-size: 1.15rem;
+        }
+
+        .panel-subtitle,
+        .panel-text {
+            margin: 4px 0 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .panel-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            color: var(--card-text);
+            background: rgba(255, 255, 255, 0.04);
+            font-weight: 700;
+        }
+
+        .camera-frame {
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
+            background: linear-gradient(180deg, #152131 0%, #1b2634 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            min-height: 420px;
+        }
+
+        .camera-stream {
+            display: block;
+            width: 100%;
+            min-height: 420px;
+            object-fit: cover;
+            background: #152131;
+        }
+
+        .camera-overlay,
+        .camera-rec {
+            position: absolute;
+            z-index: 1;
+            border-radius: 999px;
+            padding: 8px 12px;
+            background: rgba(7, 13, 18, 0.7);
+            color: var(--white);
+            font-size: 0.82rem;
+            font-weight: 800;
+            letter-spacing: 0.03em;
+        }
+
+        .camera-overlay {
+            top: 14px;
+            left: 14px;
+        }
+
+        .camera-rec {
+            top: 14px;
+            right: 14px;
+            color: #ff7270;
+        }
+
+        .sidebar-panels {
+            display: grid;
+            gap: 16px;
+        }
+
+        .event-list,
+        .schedule-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 8px;
+        }
+
+        .event-item,
+        .schedule-item {
+            display: grid;
+            gap: 6px;
+            padding: 14px;
+            border-radius: 16px;
+            background: var(--panel-soft);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .event-item strong,
+        .schedule-item strong,
+        .summary-card strong {
+            font-size: 1rem;
+        }
+
+        .event-item span,
+        .schedule-item span {
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+
+        .mini-progress {
+            display: grid;
+            gap: 12px;
+        }
+
+        .progress-row {
+            display: grid;
+            grid-template-columns: 72px 1fr 36px;
+            gap: 10px;
+            align-items: center;
+            font-size: 0.92rem;
+        }
+
+        .progress-track {
+            height: 12px;
+            border-radius: 999px;
+            background: #ece7dc;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #64a8ff 0%, #2c79d8 100%);
+        }
+
+        .wide-panel {
+            display: grid;
+            gap: 16px;
+        }
+
+        .upload-panel {
+            display: grid;
+            grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.05fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        .upload-form {
+            display: grid;
+            gap: 14px;
+        }
+
+        .field-label {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.94rem;
+        }
+
+        .file-input {
+            width: 100%;
+            padding: 16px;
+            border-radius: 16px;
+            border: 1px dashed rgba(255, 255, 255, 0.16);
+            background: #232620;
+            color: var(--card-text);
+        }
+
+        .primary-button {
+            border: 0;
+            padding: 14px 18px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #2e9bc4 0%, #16769a 100%);
+            color: var(--white);
+            font-size: 0.96rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            box-shadow: 0 12px 24px rgba(22, 118, 154, 0.26);
+        }
+
+        .primary-button:hover {
+            transform: translateY(-1px);
+        }
+
+        .detection-state {
+            padding: 16px 18px;
+            border-radius: 18px;
+            font-weight: 800;
+            line-height: 1.5;
+        }
+
+        .detection-state.alert {
+            background: rgba(241, 178, 173, 0.14);
+            color: #ffd0cb;
+            border: 1px solid rgba(241, 178, 173, 0.26);
+        }
+
+        .detection-state.safe {
+            background: rgba(205, 233, 141, 0.14);
+            color: #d8f29d;
+            border: 1px solid rgba(205, 233, 141, 0.22);
+        }
+
+        .result-card {
+            min-height: 100%;
+            padding: 18px;
+            border-radius: 18px;
+            background: linear-gradient(180deg, #252a24 0%, #1f231f 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .result-card img {
+            width: 100%;
+            border-radius: 18px;
+            margin-top: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .result-card video {
+            width: 100%;
+            margin-top: 14px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: #131716;
+        }
+
+        .placeholder-result {
+            min-height: 240px;
+            display: grid;
+            place-items: center;
+            margin-top: 14px;
+            border-radius: 18px;
+            border: 1px dashed rgba(255, 255, 255, 0.14);
+            background:
+                linear-gradient(135deg, rgba(31, 121, 151, 0.1), transparent),
+                #232620;
+            color: var(--muted);
+            text-align: center;
+            padding: 24px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .summary-card {
+            padding: 22px 18px;
+            text-align: center;
+        }
+
+        .summary-card strong {
+            display: block;
+            font-size: clamp(2rem, 3vw, 2.5rem);
+            margin-bottom: 8px;
+        }
+
+        .summary-card p {
+            margin: 0;
+            color: #5f5b4f;
+            font-weight: 700;
+        }
+
+        .summary-card.soft-danger {
+            background: #f7e5e2;
+            color: #a83330;
+        }
+
+        .summary-card.soft-warn {
+            background: #fbf0d9;
+            color: #9d6710;
+        }
+
+        .summary-card.soft-good {
+            background: #e3f2d6;
+            color: #3a7b1b;
+        }
+
+        .summary-card.soft-info {
+            background: #dfeeff;
+            color: #1558af;
+        }
+
+        .footer-note {
+            margin-top: auto;
+        }
+
+        .notification-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(5, 12, 18, 0.58);
+            backdrop-filter: blur(8px);
+        }
+
+        .notification-modal {
+            width: min(520px, 100%);
+            padding: 26px;
+            border-radius: 28px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+            color: #10212d;
+            background: #ffffff;
+            animation: modal-pop 0.24s ease-out;
+        }
+
+        .notification-modal.alert {
+            background: linear-gradient(180deg, #fff3f2 0%, #ffe0dd 100%);
+        }
+
+        .notification-modal.safe {
+            background: linear-gradient(180deg, #f4fee9 0%, #dff2c8 100%);
+        }
+
+        .notification-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .notification-icon {
+            width: 58px;
+            height: 58px;
+            border-radius: 18px;
+            display: grid;
+            place-items: center;
+            font-size: 1.7rem;
+            font-weight: 800;
+            color: #ffffff;
+        }
+
+        .notification-modal.alert .notification-icon {
+            background: linear-gradient(135deg, #f0625f 0%, #b62f35 100%);
+        }
+
+        .notification-modal.safe .notification-icon {
+            background: linear-gradient(135deg, #6db544 0%, #2f7c1e 100%);
+        }
+
+        .notification-copy {
+            flex: 1;
+        }
+
+        .notification-copy h3 {
+            margin: 0;
+            font-size: 1.45rem;
+        }
+
+        .notification-copy p {
+            margin: 10px 0 0;
+            line-height: 1.6;
+            color: #374955;
+        }
+
+        .notification-close {
+            border: 0;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: rgba(16, 33, 45, 0.08);
+            color: #10212d;
+            font-size: 1.1rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .notification-actions {
+            margin-top: 22px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        @keyframes modal-pop {
+            from {
+                opacity: 0;
+                transform: translateY(12px) scale(0.98);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .dashboard-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: static;
+                min-height: auto;
+            }
+
+            .metrics-grid,
+            .summary-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .dashboard-grid,
+            .upload-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .dashboard-shell {
+                padding: 12px;
+                gap: 14px;
+            }
+
+            .hero {
+                padding: 20px;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .hero-status {
+                justify-content: flex-start;
+            }
+
+            .metrics-grid,
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .panel-header {
+                flex-direction: column;
+            }
+
+            .camera-frame,
+            .camera-stream {
+                min-height: 280px;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% if notification_title %}
+        <div class="notification-overlay" id="notification-overlay">
+            <div class="notification-modal {{ notification_level or 'safe' }}" role="alertdialog" aria-modal="true" aria-labelledby="notification-title">
+                <div class="notification-header">
+                    <div class="notification-icon">
+                        {% if notification_level == "alert" %}!{% else %}OK{% endif %}
+                    </div>
+                    <div class="notification-copy">
+                        <h3 id="notification-title">{{ notification_title }}</h3>
+                        <p>{{ notification_message }}</p>
+                    </div>
+                    <button class="notification-close" type="button" onclick="closeNotification()" aria-label="Close notification">x</button>
+                </div>
+                <div class="notification-actions">
+                    <button class="primary-button" type="button" onclick="closeNotification()">Dismiss</button>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="dashboard-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">~</div>
+                <div>
+                    <h1>Pool Monitoring Command Centre</h1>
+                    <p>Swimming pool garbage detection dashboard</p>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <p class="sidebar-title">Navigation</p>
+                <nav class="nav-links">
+                    <a class="nav-link" href="#overview"><span>Overview</span><span>Live</span></a>
+                    <a class="nav-link" href="#upload-detection"><span>Image Detection</span><span>Upload</span></a>
+                    <a class="nav-link" href="#live-monitoring"><span>Camera Feed</span><span>Stream</span></a>
+                    <a class="nav-link" href="#summary"><span>System Summary</span><span>Status</span></a>
+                </nav>
+            </div>
+
+            <div class="sidebar-section">
+                <p class="sidebar-title">Monitored Classes</p>
+                <div class="chip-row">
+                    {% for item in garbage_classes %}
+                        <span class="chip">{{ item }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <p class="sidebar-title">System</p>
+                <div class="status-pill">
+                    <span class="status-dot"></span>
+                    <span>Model ready</span>
+                </div>
+                <p class="system-meta" style="margin-top: 12px;">Model: {{ model_path }}</p>
+                <p class="system-meta" style="margin-top: 8px;">Camera source: {{ camera_source }}</p>
+            </div>
+
+            <p class="footer-note">The upload detector and live camera feed remain active, with the layout updated to a command-centre style.</p>
+        </aside>
+
+        <main class="main">
+            <section class="hero" id="overview">
+                <div class="hero-copy">
+                    <h2>Swimming Pool Garbage Detection System</h2>
+                    <p>AI-based YOLO detection for pool safety and cleanliness monitoring. The dashboard keeps your existing upload analysis and live camera stream while presenting them in a more operational layout.</p>
+                </div>
+                <div class="hero-status">
+                    <div class="status-pill">
+                        <span class="status-dot"></span>
+                        <span>System live</span>
+                    </div>
+                    <div class="hero-clock" id="live-clock">--:--:--</div>
+                </div>
+            </section>
+
+            <section class="metrics-grid" aria-label="System overview metrics">
+                <article class="metric-card">
+                    <p>Detection focus</p>
+                    <div class="metric-value" style="color: #d89223;">{{ garbage_classes|length }}</div>
+                    <div class="metric-tag warn">Tracked garbage classes</div>
+                </article>
+                <article class="metric-card">
+                    <p>Model status</p>
+                    <div class="metric-value" style="color: #5da62f;">0.25</div>
+                    <div class="metric-tag good">Confidence threshold</div>
+                </article>
+                <article class="metric-card">
+                    <p>Live monitoring</p>
+                    <div class="metric-value" style="color: #2c85ff;">24/7</div>
+                    <div class="metric-tag info">Webcam / CCTV ready</div>
+                </article>
+                <article class="metric-card">
+                    <p>Result storage</p>
+                    <div class="metric-value" style="color: #7ac963;">2</div>
+                    <div class="metric-tag good">Uploads + results folders</div>
+                </article>
+            </section>
+
+            <section class="dashboard-grid" id="live-monitoring">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h3 class="panel-title">Live Camera Feed</h3>
+                            <p class="panel-subtitle">Pool zone monitoring through the existing `/video-feed` stream.</p>
+                        </div>
+                        <div class="panel-badge">Live analysis active</div>
+                    </div>
+                    <div class="camera-frame">
+                        <div class="camera-overlay">LIVE / Monitoring</div>
+                        <div class="camera-rec">REC</div>
+                        <img class="camera-stream" src="/video-feed" alt="Live camera feed for garbage detection">
+                    </div>
+                </article>
+
+                <div class="sidebar-panels">
+                    <article class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <h3 class="panel-title">Alert Stream</h3>
+                                <p class="panel-subtitle">Recent event categories based on current system behavior.</p>
+                            </div>
+                            <div class="panel-badge">Active monitor</div>
+                        </div>
+                        <div class="event-list">
+                            <div class="event-item">
+                                <strong>Image upload analysis</strong>
+                                <span>Flags uploaded pool images when any monitored garbage class appears.</span>
+                            </div>
+                            <div class="event-item">
+                                <strong>Live camera analysis</strong>
+                                <span>Displays an on-frame alert when garbage is detected in the current stream.</span>
+                            </div>
+                            <div class="event-item">
+                                <strong>Video upload analysis</strong>
+                                <span>Processes uploaded pool videos and returns an annotated playback result.</span>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <h3 class="panel-title">Coverage</h3>
+                                <p class="panel-subtitle">Current monitoring emphasis across existing flows.</p>
+                            </div>
+                        </div>
+                        <div class="mini-progress">
+                            <div class="progress-row">
+                                <span>Upload</span>
+                                <div class="progress-track"><div class="progress-fill" style="width: 92%;"></div></div>
+                                <span>92</span>
+                            </div>
+                            <div class="progress-row">
+                                <span>Camera</span>
+                                <div class="progress-track"><div class="progress-fill" style="width: 88%;"></div></div>
+                                <span>88</span>
+                            </div>
+                            <div class="progress-row">
+                                <span>Alerts</span>
+                                <div class="progress-track"><div class="progress-fill" style="width: 80%;"></div></div>
+                                <span>80</span>
+                            </div>
+                            <div class="progress-row">
+                                <span>Storage</span>
+                                <div class="progress-track"><div class="progress-fill" style="width: 76%;"></div></div>
+                                <span>76</span>
+                            </div>
+                        </div>
+                    </article>
+
+                </div>
+            </section>
+
+            <section class="summary-grid" id="summary">
+                <article class="summary-card soft-danger">
+                    <strong>{% if detected == True %}1{% else %}0{% endif %}</strong>
+                    <p>Current alert state</p>
+                </article>
+                <article class="summary-card soft-warn">
+                    <strong>{{ garbage_classes|length }}</strong>
+                    <p>Object classes watched</p>
+                </article>
+                <article class="summary-card soft-good">
+                    <strong>YOLO</strong>
+                    <p>Detection engine online</p>
+                </article>
+                <article class="summary-card soft-info">
+                    <strong>Live</strong>
+                    <p>Camera stream endpoint</p>
+                </article>
+            </section>
+
+            <section class="panel wide-panel" id="upload-detection">
+                <div class="panel-header">
+                    <div>
+                        <h3 class="panel-title">Media Detection Console</h3>
+                        <p class="panel-subtitle">Upload a swimming pool image or video and review the annotated output without leaving the dashboard.</p>
+                    </div>
+                    <div class="panel-badge">Existing feature preserved</div>
+                </div>
+
+                <div class="upload-panel">
+                    <div class="upload-form">
+                        <div>
+                            <p class="field-label">Select a pool image or video for YOLO analysis</p>
+                            <form action="/detect-media" method="POST" enctype="multipart/form-data">
+                                <input class="file-input" type="file" name="media" accept="image/*,video/*" required>
+                                <div style="height: 12px;"></div>
+                                <button class="primary-button" type="submit">Analyze Upload</button>
+                            </form>
+                        </div>
+
+                        {% if notification_title and notification_level == "alert" %}
+                            <div class="detection-state alert">{{ notification_message }}</div>
+                        {% elif notification_title and notification_level == "safe" %}
+                            <div class="detection-state safe">{{ notification_message }}</div>
+                        {% endif %}
+
+                        <div class="chip-row">
+                            <span class="chip">Upload storage: static/uploads</span>
+                            <span class="chip">Result storage: static/results</span>
+                            <span class="chip">Supports images and videos</span>
+                        </div>
+                    </div>
+
+                    <div class="result-card">
+                        <h4 style="margin: 0;">Annotated Result</h4>
+                        <p class="panel-text">The processed media appears here after detection completes.</p>
+                        {% if media_result and media_result_type == "image" %}
+                            <img src="{{ media_result }}" alt="Annotated swimming pool garbage detection result">
+                        {% elif media_result and media_result_type == "video" %}
+                            <video controls preload="metadata">
+                                <source src="{{ media_result }}" type="video/mp4">
+                                Your browser does not support inline video playback.
+                            </video>
+                        {% else %}
+                            <div class="placeholder-result">
+                                <div>
+                                    <strong>No processed media yet</strong>
+                                    <p style="margin: 10px 0 0;">Run an upload detection to display the saved annotated image or video in this panel.</p>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        function closeNotification() {
+            const overlay = document.getElementById("notification-overlay");
+            if (overlay) {
+                overlay.remove();
+            }
+        }
+
+        function updateClock() {
+            const clock = document.getElementById("live-clock");
+            if (!clock) {
+                return;
+            }
+
+            const now = new Date();
+            clock.textContent = now.toLocaleTimeString("en-GB", {
+                hour12: false
+            });
+        }
+
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") {
+                closeNotification();
+            }
+        });
+    </script>
+</body>
+</html>
