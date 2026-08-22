@@ -18,3 +18,5 @@ Thumbs.db
 !**/results/
 !**/results/results.csv
 !**/results/args.yaml
+yolo11*.pt
+yolov8*.pt

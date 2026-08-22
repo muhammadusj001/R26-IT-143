@@ -63,6 +63,9 @@ CROWD_DENSITY_MODERATE = int(os.getenv("CROWD_DENSITY_MODERATE", "4"))
 CROWD_DENSITY_HIGH = int(os.getenv("CROWD_DENSITY_HIGH", "8"))
 # Bather-load (swimmer-minutes) above which maintenance is recommended.
 MAINTENANCE_LOAD_THRESHOLD = float(os.getenv("MAINTENANCE_LOAD_THRESHOLD", "600"))
+# Pool capacity standard (water surface area per bather).
+POOL_AREA_M2 = float(os.getenv("POOL_AREA_M2", "250"))
+AREA_PER_BATHER_M2 = float(os.getenv("AREA_PER_BATHER_M2", "2.7"))
 
 # ── Server ───────────────────────────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")

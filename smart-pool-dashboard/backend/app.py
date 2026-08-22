@@ -48,7 +48,9 @@ camera = CameraManager()
 crowd = CrowdDetector(model_path=settings.CROWD_MODEL_PATH,
                       conf_threshold=settings.CROWD_CONF_THRESHOLD,
                       density_moderate=settings.CROWD_DENSITY_MODERATE,
-                      density_high=settings.CROWD_DENSITY_HIGH)
+                      density_high=settings.CROWD_DENSITY_HIGH,
+                      pool_area_m2=settings.POOL_AREA_M2,
+                      area_per_bather_m2=settings.AREA_PER_BATHER_M2)
 drowning = DrowningDetector(model_path=settings.DROWNING_MODEL_PATH,
                             conf_threshold=settings.DROWNING_CONF_THRESHOLD,
                             consec_frames=settings.DROWNING_CONSEC_FRAMES)
@@ -59,10 +61,12 @@ water = WaterQualityMonitor(
 )
 
 _vision_thread = None
+_last_crowd_density = None
 
 
 def vision_loop():
     """Shared camera loop: one frame feeds all three vision modules."""
+    global _last_crowd_density
     if not camera.open():
         state.update_root({"running": False, "camera_connected": False})
         socketio.emit("camera_error", {"message": f"Cannot open camera: {camera.source}"})
@@ -95,6 +99,16 @@ def vision_loop():
         state.update_module("crowd", crowd_result)
         state.update_module("drowning", drown_result)
         state.update_module("garbage", garbage_result)
+
+        crowd_density = crowd_result.get("density_level")
+        crowd_alert = crowd_result.get("crowd_alert")
+        if crowd_alert and crowd_density != _last_crowd_density:
+            state.add_alert(
+                "crowd",
+                crowd_alert,
+                "danger" if crowd_density == "OVER CAPACITY" else "warning",
+            )
+        _last_crowd_density = crowd_density
 
         if drown_alert:
             state.add_alert(
