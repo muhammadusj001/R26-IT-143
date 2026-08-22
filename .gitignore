@@ -20,3 +20,4 @@ Thumbs.db
 !**/results/args.yaml
 yolo11*.pt
 yolov8*.pt
+download.py
