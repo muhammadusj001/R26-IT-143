@@ -23,10 +23,12 @@ class DecisionEngine:
         notes = []
 
         # ── Overall safety risk ──────────────────────────────
+        crowd_at_high_density = crowd["density_level"] in ("HIGH", "OVER CAPACITY")
+
         overall_risk = "NORMAL"
         if drowning["status"] == "DANGER":
             overall_risk = "EMERGENCY"
-            if crowd["density_level"] == "HIGH":
+            if crowd_at_high_density:
                 notes.append(
                     "Drowning alert during HIGH crowd density — "
                     "visual confirmation may be slower, priority escalated."
@@ -34,8 +36,14 @@ class DecisionEngine:
         elif water["status"] == "CRITICAL":
             overall_risk = "HIGH"
             notes.append("Water quality CRITICAL — swimming not advised.")
-        elif crowd["density_level"] == "HIGH" or water["status"] == "WARNING":
+        elif crowd_at_high_density or water["status"] == "WARNING":
             overall_risk = "ELEVATED"
+
+        if crowd["density_level"] == "OVER CAPACITY":
+            notes.append(
+                f"Pool is OVER CAPACITY ({crowd.get('swimmer_count', 0)}/"
+                f"{crowd.get('max_capacity', 0)} bathers) — restrict entry."
+            )
 
         # ── Maintenance urgency (crowd load × water trend) ───
         urgency = "LOW"

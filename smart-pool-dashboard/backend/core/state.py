@@ -30,6 +30,8 @@ class SystemState:
                 "recommendations": [],
                 "maintenance_recommendation": "No maintenance needed",
                 "model_status": "not_loaded",
+                "max_capacity": 0,
+                "occupancy_pct": 0.0,
             },
             "drowning": {
                 "swimming": 0,

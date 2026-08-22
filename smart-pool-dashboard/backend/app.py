@@ -44,25 +44,43 @@ app = Flask(
 app.config["SECRET_KEY"] = settings.SECRET_KEY
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
+# The vision loop below staggers crowd/drowning/garbage across processed
+# frames (1 turn each out of every 3) as a CPU optimisation — see
+# vision_loop(). Each module therefore now runs 3x less often than
+# before. DROWNING_CONSEC_FRAMES (settings.py, left untouched) is
+# expressed in "number of consecutive detector runs"; to keep the
+# drowning alert firing within roughly the same real-world time as
+# before staggering was introduced, the count passed to the detector
+# itself is scaled down by the same stagger factor.
+_STAGGER_FACTOR = 3  # crowd, drowning, garbage — one turn each per cycle
+_drowning_consec_frames = max(1, round(settings.DROWNING_CONSEC_FRAMES / _STAGGER_FACTOR))
+
 camera = CameraManager()
 crowd = CrowdDetector(model_path=settings.CROWD_MODEL_PATH,
                       conf_threshold=settings.CROWD_CONF_THRESHOLD,
                       density_moderate=settings.CROWD_DENSITY_MODERATE,
-                      density_high=settings.CROWD_DENSITY_HIGH)
+                      density_high=settings.CROWD_DENSITY_HIGH,
+                      pool_area_m2=settings.POOL_AREA_M2,
+                      area_per_bather_m2=settings.AREA_PER_BATHER_M2,
+                      imgsz=settings.DETECTION_IMGSZ)
 drowning = DrowningDetector(model_path=settings.DROWNING_MODEL_PATH,
                             conf_threshold=settings.DROWNING_CONF_THRESHOLD,
-                            consec_frames=settings.DROWNING_CONSEC_FRAMES)
+                            consec_frames=_drowning_consec_frames,
+                            imgsz=settings.DETECTION_IMGSZ)
 garbage = GarbageDetector(model_path=settings.GARBAGE_MODEL_PATH,
-                          conf_threshold=settings.GARBAGE_CONF_THRESHOLD)
+                          conf_threshold=settings.GARBAGE_CONF_THRESHOLD,
+                          imgsz=settings.DETECTION_IMGSZ)
 water = WaterQualityMonitor(
     on_update=lambda: socketio.emit("state_update", state.snapshot())
 )
 
 _vision_thread = None
+_last_crowd_density = None
 
 
 def vision_loop():
     """Shared camera loop: one frame feeds all three vision modules."""
+    global _last_crowd_density
     if not camera.open():
         state.update_root({"running": False, "camera_connected": False})
         socketio.emit("camera_error", {"message": f"Cannot open camera: {camera.source}"})
@@ -71,6 +89,7 @@ def vision_loop():
     state.update_root({"running": True, "camera_connected": True})
     start = time.time()
     frame_num = 0
+    processed_num = 0
 
     while state.data["running"]:
         ok, frame = camera.read()
@@ -87,14 +106,40 @@ def vision_loop():
         if frame_num % settings.PROCESS_EVERY_N_FRAMES != 0:
             continue
 
-        # ── Independent modules, same frame ──────────────────
-        frame, crowd_result = crowd.process(frame)
-        frame, drown_result, drown_alert = drowning.process(frame)
-        frame, garbage_result, garbage_alert = garbage.process(frame)
+        processed_num += 1
 
-        state.update_module("crowd", crowd_result)
-        state.update_module("drowning", drown_result)
-        state.update_module("garbage", garbage_result)
+        # ── CPU optimisation: stagger the 3 vision models ─────
+        # Running crowd + drowning + garbage detection on every single
+        # processed frame is the main FPS cost. Instead, each module
+        # gets one turn out of every 3 processed frames (crowd, then
+        # drowning, then garbage, repeating) — each module still runs
+        # completely independently and unmodified, just less often.
+        # On the frames where a module doesn't run, its previous result
+        # simply isn't touched, so state.snapshot() keeps returning its
+        # last known values and the dashboard card never goes blank.
+        stage = processed_num % _STAGGER_FACTOR
+        drown_alert = None
+        garbage_alert = None
+
+        if stage == 0:
+            frame, crowd_result = crowd.process(frame)
+            state.update_module("crowd", crowd_result)
+
+            crowd_density = crowd_result.get("density_level")
+            crowd_alert = crowd_result.get("crowd_alert")
+            if crowd_alert and crowd_density != _last_crowd_density:
+                state.add_alert(
+                    "crowd",
+                    crowd_alert,
+                    "danger" if crowd_density == "OVER CAPACITY" else "warning",
+                )
+            _last_crowd_density = crowd_density
+        elif stage == 1:
+            frame, drown_result, drown_alert = drowning.process(frame)
+            state.update_module("drowning", drown_result)
+        else:
+            frame, garbage_result, garbage_alert = garbage.process(frame)
+            state.update_module("garbage", garbage_result)
 
         if drown_alert:
             state.add_alert(

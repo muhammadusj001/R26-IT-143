@@ -27,10 +27,11 @@ SIM_OBJECTS = ["bottle", "aluminium foil", "juice", "thermocol"]
 
 
 class GarbageDetector:
-    def __init__(self, model_path=None, conf_threshold=0.25):
+    def __init__(self, model_path=None, conf_threshold=0.25, imgsz=None):
         # conf 0.25 preserved from the original app.py
         self.model_path = model_path
         self.conf_threshold = conf_threshold
+        self.imgsz = imgsz            # None = ultralytics default inference size
         self.model = None
         self.model_status = "not_loaded"
         self.total_events = 0
@@ -73,8 +74,11 @@ class GarbageDetector:
 
     def _detect(self, frame):
         """Original class-disambiguation logic: only GARBAGE_CLASSES alert."""
+        kwargs = {"conf": self.conf_threshold, "verbose": False}
+        if self.imgsz:
+            kwargs["imgsz"] = self.imgsz
         garbage, others = [], []
-        results = self.model(frame, conf=self.conf_threshold, verbose=False)
+        results = self.model(frame, **kwargs)
         for result in results:
             for box in result.boxes:
                 name = self.model.names[int(box.cls[0])]
