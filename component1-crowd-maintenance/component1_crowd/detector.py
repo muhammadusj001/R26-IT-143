@@ -94,7 +94,7 @@ class CrowdDetector:
                 len(names) > 10 and str(names.get(0, "")).lower() == "person"
             )
             mode = "COCO/person" if self.is_coco_model else "custom/swimmer"
-            self.model_status = f"loaded ({mode})"
+            self.model_status = "loaded"
             print(f"  Crowd model: {self.model_path.name} — {mode} mode, "
                   f"{len(names)} class(es)")
             return True

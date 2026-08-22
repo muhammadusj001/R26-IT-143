@@ -75,6 +75,9 @@ SECRET_KEY = os.getenv("SECRET_KEY", "smart_pool_r26_it_143")
 # Frame processing
 FRAME_WIDTH = int(os.getenv("FRAME_WIDTH", "640"))
 FRAME_HEIGHT = int(os.getenv("FRAME_HEIGHT", "480"))
-PROCESS_EVERY_N_FRAMES = int(os.getenv("PROCESS_EVERY_N_FRAMES", "2"))
-JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "70"))
+PROCESS_EVERY_N_FRAMES = int(os.getenv("PROCESS_EVERY_N_FRAMES", "3"))
+JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "60"))
 MAX_ALERT_HISTORY = int(os.getenv("MAX_ALERT_HISTORY", "10"))
+# Inference resolution passed to all 3 vision detectors (crowd, drowning,
+# garbage). Smaller = faster YOLO inference at some accuracy cost.
+DETECTION_IMGSZ = int(os.getenv("DETECTION_IMGSZ", "480"))

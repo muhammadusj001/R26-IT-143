@@ -21,6 +21,7 @@ from component3_drowning.drawing import draw_box, draw_alert_banner
 
 DEFAULT_CONF = 0.35        # preserved from original dashboard/app.py
 DEFAULT_CONSEC_FRAMES = 3  # preserved from original scripts
+DEFAULT_IMGSZ = 416        # preserved from original scripts
 
 # Colours preserved exactly from Component 3
 COLORS = {
@@ -32,10 +33,11 @@ COLORS = {
 
 class DrowningDetector:
     def __init__(self, model_path=None, conf_threshold=DEFAULT_CONF,
-                 consec_frames=DEFAULT_CONSEC_FRAMES):
+                 consec_frames=DEFAULT_CONSEC_FRAMES, imgsz=DEFAULT_IMGSZ):
         self.model_path = model_path
         self.conf_threshold = conf_threshold
         self.consec_frames = consec_frames
+        self.imgsz = imgsz
         self.model = None
         self.model_status = "not_loaded"
         self.consec_drown = 0
@@ -68,7 +70,7 @@ class DrowningDetector:
 
         results = self.model(
             frame,
-            imgsz=416,
+            imgsz=self.imgsz,
             conf=self.conf_threshold,
             verbose=False,
         )
