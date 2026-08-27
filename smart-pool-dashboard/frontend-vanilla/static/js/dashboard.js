@@ -19,9 +19,24 @@ function setConn(ok) {
 function startDetection() { socket.emit('start_detection'); }
 function stopDetection()  { socket.emit('stop_detection'); }
 
+// Client-side session-stats tracking (peak swimmers / alerts this
+// session). The backend already tracks a fuller session summary for
+// the PDF report (see /api/session/summary), but that isn't part of
+// the live state broadcast — these two small counters just mirror
+// what's visible in the state updates this page has already received,
+// reset each time a new session starts.
+let peakSwimmers = 0;
+let sessionAlertCount = 0;
+let lastSeenAlertKey; // undefined = no state observed yet this session
+
 socket.on('detection_started', () => {
   document.getElementById('startBtn').disabled = true;
   document.getElementById('stopBtn').disabled = false;
+  peakSwimmers = 0;
+  sessionAlertCount = 0;
+  lastSeenAlertKey = undefined;
+  setText('peakSwimmers', 0);
+  setText('sessionAlerts', 0);
 });
 socket.on('detection_stopped', () => {
   document.getElementById('startBtn').disabled = false;
@@ -53,6 +68,25 @@ function updateDashboard(s) {
   setText('fps', s.fps);
   setText('frameNum', s.frame_num);
   setText('sessionTime', s.session_time);
+
+  // Session stats strip (client-side running totals, reset on start)
+  if (typeof s.crowd.swimmer_count === 'number') {
+    peakSwimmers = Math.max(peakSwimmers, s.crowd.swimmer_count);
+  }
+  setText('peakSwimmers', peakSwimmers);
+  const currentTopAlertKey = s.alerts.length
+    ? s.alerts[0].time + '|' + s.alerts[0].module + '|' + s.alerts[0].message
+    : null;
+  if (lastSeenAlertKey === undefined) {
+    // First observation this session: establish a baseline without
+    // counting it (avoids counting alerts that already existed before
+    // this page/session started).
+    lastSeenAlertKey = currentTopAlertKey;
+  } else if (currentTopAlertKey !== null && currentTopAlertKey !== lastSeenAlertKey) {
+    sessionAlertCount++;
+    lastSeenAlertKey = currentTopAlertKey;
+  }
+  setText('sessionAlerts', sessionAlertCount);
 
   // Crowd
   setText('swimmerCount', s.crowd.swimmer_count);
@@ -107,6 +141,55 @@ function updateDashboard(s) {
         `<li class="alert-item ${a.severity}"><b>${a.time}</b> · ${a.module}: ${a.message}</li>`
       ).join('')
     : '<li class="muted">No alerts yet</li>';
+}
+
+// ── PDF report ──────────────────────────────────────────────
+function generateReport() {
+  const btn = document.getElementById('reportBtn');
+  if (!btn) return;
+  const label = btn.querySelector('.btn-label');
+  const err = document.getElementById('reportError');
+
+  btn.disabled = true;
+  if (label) label.textContent = 'Generating…';
+  if (err) { err.textContent = ''; err.classList.remove('show'); }
+
+  fetch('/api/report')
+    .then(async (resp) => {
+      if (!resp.ok) {
+        let msg = 'Report generation failed';
+        try {
+          const data = await resp.json();
+          if (data && data.error) msg = data.error;
+        } catch (e) { /* keep default message */ }
+        throw new Error(msg);
+      }
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const match = /filename="?([^";]+)"?/.exec(cd);
+      const filename = match ? match[1] : 'pool_session_report.pdf';
+      const blob = await resp.blob();
+      return { blob, filename };
+    })
+    .then(({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    })
+    .catch((e) => {
+      if (err) {
+        err.textContent = e.message || 'Report generation failed';
+        err.classList.add('show');
+      }
+    })
+    .finally(() => {
+      btn.disabled = false;
+      if (label) label.textContent = 'Generate Report';
+    });
 }
 
 // ── Helpers ─────────────────────────────────────────────────

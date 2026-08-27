@@ -44,9 +44,14 @@
         <h2>
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
           Live CCTV Feed <span class="sub">(shared by Crowd · Drowning · Garbage)</span></h2>
-        <div>
+        <div class="header-actions">
           <button class="btn btn-start" id="startBtn" onclick="startDetection()">▶ Start</button>
           <button class="btn btn-stop" id="stopBtn" onclick="stopDetection()" disabled>■ Stop</button>
+          <button class="btn btn-report" id="reportBtn" onclick="generateReport()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+            <span class="btn-label">Generate Report</span>
+          </button>
+          <span class="report-error" id="reportError"></span>
         </div>
       </div>
       <div class="camera-container">
@@ -58,6 +63,10 @@
         <span>FPS: <b id="fps">0</b></span>
         <span>Frame: <b id="frameNum">0</b></span>
         <span>Session: <b id="sessionTime">00:00</b></span>
+      </div>
+      <div class="session-stats">
+        <span>Peak swimmers: <b id="peakSwimmers">0</b></span>
+        <span>Alerts this session: <b id="sessionAlerts">0</b></span>
       </div>
     </div>
 

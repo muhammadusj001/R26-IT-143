@@ -15,10 +15,11 @@ from component2_water.predictor import WaterQualityPredictor
 
 
 class WaterQualityMonitor:
-    def __init__(self, on_update=None):
+    def __init__(self, on_update=None, session_tracker=None):
         self.reader = SensorReader(settings.SENSOR_SOURCE, settings.SENSOR_BAUD_RATE)
         self.predictor = WaterQualityPredictor(settings.WATER_MODEL_DIR)
         self.on_update = on_update
+        self.session_tracker = session_tracker
         self._running = False
         self._last_status = None
 
@@ -47,9 +48,17 @@ class WaterQualityMonitor:
                 **reading, "status": status, "sensor_connected": True,
                 "model_status": self.predictor.model_status,
             })
+            if self.session_tracker:
+                self.session_tracker.record_water(
+                    reading["ph"], reading["temperature"], reading["chlorine"],
+                    reading["turbidity"], reading["tds"], status,
+                )
             if status != self._last_status and status in ("WARNING", "CRITICAL"):
-                state.add_alert("water_quality", f"Water quality {status}",
-                                "danger" if status == "CRITICAL" else "warning")
+                water_severity = "danger" if status == "CRITICAL" else "warning"
+                water_message = f"Water quality {status}"
+                state.add_alert("water_quality", water_message, water_severity)
+                if self.session_tracker:
+                    self.session_tracker.record_alert("water_quality", water_message, water_severity)
             self._last_status = status
 
             if self.on_update:

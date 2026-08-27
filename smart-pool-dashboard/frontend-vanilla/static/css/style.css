@@ -234,21 +234,42 @@ body {
 }
 .camera-meta b { font-family: "JetBrains Mono", monospace; color: var(--text); font-weight: 600; }
 
+/* Session stats strip — peak swimmers / alerts this session */
+.session-stats {
+  display: flex; gap: 22px; margin-top: 6px; font-size: 12px; color: var(--text-faint);
+}
+.session-stats b { font-family: "JetBrains Mono", monospace; color: var(--text-dim); font-weight: 600; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 .btn {
   border: 0; border-radius: 8px; padding: 9px 18px; font-weight: 600;
   cursor: pointer; font-size: 13px; font-family: "Inter", sans-serif;
-  transition: transform var(--t), opacity var(--t), box-shadow var(--t);
+  transition: transform var(--t), opacity var(--t), box-shadow var(--t), background var(--t);
 }
 .btn:hover:not(:disabled) { transform: translateY(-1px); }
 .btn:disabled { opacity: 0.35; cursor: default; transform: none; }
 .btn-start {
-  background: linear-gradient(135deg, #16a34a, #15803d); color: #fff; margin-right: 6px;
+  background: linear-gradient(135deg, #16a34a, #15803d); color: #fff;
   box-shadow: 0 4px 14px rgba(22, 163, 74, 0.25);
 }
 .btn-stop {
   background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff;
   box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
 }
+/* Neutral/secondary — deliberately not green or red like start/stop */
+.btn-report {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255, 255, 255, 0.06); color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-report:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.btn-report svg { flex-shrink: 0; }
+
+.report-error {
+  display: none; color: var(--danger); font-size: 12px; align-self: center;
+}
+.report-error.show { display: inline-block; }
 
 /* Stats */
 .stat-row { display: flex; gap: 10px; }
@@ -348,6 +369,10 @@ body {
   .card { padding: 14px 14px; }
   .camera-container { min-height: 220px; }
   .camera-meta { flex-wrap: wrap; gap: 8px 18px; }
+  .session-stats { flex-wrap: wrap; gap: 5px 16px; font-size: 11px; }
+  /* Icon-only on mobile to save header width */
+  .btn-report .btn-label { display: none; }
+  .btn-report { padding: 9px 11px; }
   /* Stat tiles: 2 per row instead of 3 */
   .stat-row { flex-wrap: wrap; }
   .stat-row .stat { flex: 1 1 calc(50% - 5px); }

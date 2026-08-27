@@ -12,9 +12,12 @@ already used) pushes everything to the single dashboard in real time.
 """
 
 import base64
+import os
 import sys
+import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 # Mount the four component repos (git submodules) onto the import path
@@ -24,13 +27,15 @@ for _repo in ("component1-crowd-maintenance", "component2-water-quality",
     sys.path.insert(0, str(_BASE / "components" / _repo))
 
 import cv2
-from flask import Flask, render_template
+from flask import Flask, render_template, send_file, jsonify, after_this_request
 from flask_socketio import SocketIO, emit
 
 from config import settings
 from core.camera import CameraManager
 from core.state import state
 from core.decision_engine import decision_engine
+from core.session_tracker import SessionTracker
+from core.report_generator import generate_session_report
 from component1_crowd.detector import CrowdDetector
 from component3_drowning.detector import DrowningDetector
 from component4_garbage.detector import GarbageDetector
@@ -70,8 +75,10 @@ drowning = DrowningDetector(model_path=settings.DROWNING_MODEL_PATH,
 garbage = GarbageDetector(model_path=settings.GARBAGE_MODEL_PATH,
                           conf_threshold=settings.GARBAGE_CONF_THRESHOLD,
                           imgsz=settings.DETECTION_IMGSZ)
+session = SessionTracker()
 water = WaterQualityMonitor(
-    on_update=lambda: socketio.emit("state_update", state.snapshot())
+    on_update=lambda: socketio.emit("state_update", state.snapshot()),
+    session_tracker=session,
 )
 
 _vision_thread = None
@@ -124,15 +131,19 @@ def vision_loop():
         if stage == 0:
             frame, crowd_result = crowd.process(frame)
             state.update_module("crowd", crowd_result)
+            session.record_crowd(
+                crowd_result.get("swimmer_count", 0),
+                crowd_result.get("density_level"),
+                crowd_result.get("bather_load", 0.0),
+                crowd_result.get("recommendations"),
+            )
 
             crowd_density = crowd_result.get("density_level")
             crowd_alert = crowd_result.get("crowd_alert")
             if crowd_alert and crowd_density != _last_crowd_density:
-                state.add_alert(
-                    "crowd",
-                    crowd_alert,
-                    "danger" if crowd_density == "OVER CAPACITY" else "warning",
-                )
+                crowd_severity = "danger" if crowd_density == "OVER CAPACITY" else "warning"
+                state.add_alert("crowd", crowd_alert, crowd_severity)
+                session.record_alert("crowd", crowd_alert, crowd_severity)
             _last_crowd_density = crowd_density
         elif stage == 1:
             frame, drown_result, drown_alert = drowning.process(frame)
@@ -142,14 +153,13 @@ def vision_loop():
             state.update_module("garbage", garbage_result)
 
         if drown_alert:
-            state.add_alert(
-                "drowning",
-                f"DROWNING DETECTED — {drown_alert['count']} person(s)",
-                "danger",
-            )
+            drown_message = f"DROWNING DETECTED — {drown_alert['count']} person(s)"
+            state.add_alert("drowning", drown_message, "danger")
+            session.record_alert("drowning", drown_message, "danger")
             socketio.emit("drowning_alert", drown_alert)
         if garbage_alert:
             state.add_alert("garbage", garbage_alert, "warning")
+            session.record_alert("garbage", garbage_alert, "warning")
 
         # ── Cross-module intelligence (Decision Engine only) ─
         state.update_module("decision", decision_engine.evaluate(state.snapshot()))
@@ -187,6 +197,47 @@ def status():
     return state.snapshot()
 
 
+@app.route("/api/session/summary")
+def session_summary():
+    return session.get_summary()
+
+
+@app.route("/api/report")
+def download_report():
+    try:
+        snap = state.snapshot()
+        summary = session.get_summary()
+        summary["frames_processed"] = snap.get("frame_num", 0)
+        summary["model_status"] = {
+            "crowd": snap.get("crowd", {}).get("model_status"),
+            "drowning": snap.get("drowning", {}).get("model_status"),
+            "garbage": snap.get("garbage", {}).get("model_status"),
+            "water_quality": snap.get("water_quality", {}).get("model_status"),
+        }
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        generate_session_report(summary, tmp_path)
+
+        @after_this_request
+        def _cleanup(response):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return response
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(
+            tmp_path,
+            as_attachment=True,
+            download_name=f"pool_session_report_{timestamp}.pdf",
+            mimetype="application/pdf",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"Failed to generate report: {exc}"}), 500
+
+
 # ── Socket events ────────────────────────────────────────────
 @socketio.on("connect")
 def on_connect():
@@ -197,6 +248,7 @@ def on_connect():
 def start_detection():
     global _vision_thread
     if not state.data["running"]:
+        session.start()
         _vision_thread = threading.Thread(target=vision_loop, daemon=True)
         _vision_thread.start()
         emit("detection_started", {"message": "Detection started"})
@@ -205,6 +257,7 @@ def start_detection():
 @socketio.on("stop_detection")
 def stop_detection():
     state.update_root({"running": False})
+    session.stop()
     emit("detection_stopped", {"message": "Detection stopped"})
 
 
