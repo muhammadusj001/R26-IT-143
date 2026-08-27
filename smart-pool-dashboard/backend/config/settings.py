@@ -24,7 +24,7 @@ DROWNING_MODEL_PATH = Path(
 )
 CROWD_MODEL_PATH = Path(
     os.getenv("CROWD_MODEL_PATH",
-              COMPONENTS_DIR / "component1-crowd-maintenance" / "models" / "best_swimmer_model.pt")
+              COMPONENTS_DIR / "component1-crowd-maintenance" / "models" / "yolo11m.pt")
 )
 GARBAGE_MODEL_PATH = Path(
     os.getenv("GARBAGE_MODEL_PATH",
