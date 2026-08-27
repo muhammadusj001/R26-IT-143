@@ -67,7 +67,8 @@ crowd = CrowdDetector(model_path=settings.CROWD_MODEL_PATH,
                       density_high=settings.CROWD_DENSITY_HIGH,
                       pool_area_m2=settings.POOL_AREA_M2,
                       area_per_bather_m2=settings.AREA_PER_BATHER_M2,
-                      imgsz=settings.DETECTION_IMGSZ)
+                      imgsz=settings.DETECTION_IMGSZ,
+                      pool_polygon=settings.POOL_POLYGON)
 drowning = DrowningDetector(model_path=settings.DROWNING_MODEL_PATH,
                             conf_threshold=settings.DROWNING_CONF_THRESHOLD,
                             consec_frames=_drowning_consec_frames,

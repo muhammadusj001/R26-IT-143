@@ -67,6 +67,26 @@ MAINTENANCE_LOAD_THRESHOLD = float(os.getenv("MAINTENANCE_LOAD_THRESHOLD", "600"
 POOL_AREA_M2 = float(os.getenv("POOL_AREA_M2", "250"))
 AREA_PER_BATHER_M2 = float(os.getenv("AREA_PER_BATHER_M2", "2.7"))
 
+
+def _parse_pool_polygon(raw: str):
+    """Space-separated "x,y" pairs in relative 0.0-1.0 coordinates, e.g.
+    "0.2,0.3 0.85,0.3 0.9,0.95 0.1,0.95" -> [(0.2,0.3), (0.85,0.3), ...].
+    Returns None (no ROI filtering) if the env var is unset/empty."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    points = []
+    for pair in raw.split():
+        x_str, y_str = pair.split(",")
+        points.append((float(x_str), float(y_str)))
+    return points or None
+
+
+# Pool region (ROI) that swimmer detections are counted within — see
+# CrowdDetector.is_in_pool(). None means count every detected person
+# (no ROI filtering), matching the previous behaviour.
+POOL_POLYGON = _parse_pool_polygon(os.getenv("POOL_POLYGON", ""))
+
 # ── Server ───────────────────────────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "5000"))

@@ -18,6 +18,14 @@ COUNT SMOOTHING:
 Raw per-frame counts flicker when detections sit near the confidence
 threshold. A short rolling median is applied so the dashboard shows a
 stable number, while the underlying detections remain unmodified.
+
+POOL REGION (ROI) FILTER:
+An optional pool_polygon (relative 0.0-1.0 corner points) restricts
+counting to people actually inside the pool water, so deck/poolside
+bystanders aren't counted as swimmers. Detection still runs on the
+whole frame — people outside the polygon are drawn dimmed but excluded
+from swimmer_count / bather load / density. With no polygon configured,
+behaviour is unchanged (everyone detected counts, as before).
 """
 
 import random
@@ -25,11 +33,16 @@ import time
 from collections import deque
 from statistics import median
 
+import cv2
+import numpy as np
+
 from component1_crowd.drawing import draw_box
 from component1_crowd.bather_load import BatherLoadCalculator
 from component1_crowd.scheduler import MaintenanceScheduler
 
 SWIMMER_COLOR = (255, 200, 0)
+OUT_OF_POOL_COLOR = (140, 140, 140)   # dim grey — detected but outside the pool region
+POOL_OUTLINE_COLOR = (238, 211, 34)   # aqua (BGR), matches the dashboard's aqua accent
 PERSON_CLASS_ID = 0          # "person" in COCO
 SMOOTHING_WINDOW = 5         # frames used for the rolling median
 
@@ -54,7 +67,8 @@ class CrowdDetector:
                  density_moderate=DENSITY_MODERATE, density_high=DENSITY_HIGH,
                  imgsz=None, smooth=True,
                  pool_area_m2=DEFAULT_POOL_AREA_M2,
-                 area_per_bather_m2=DEFAULT_AREA_PER_BATHER_M2):
+                 area_per_bather_m2=DEFAULT_AREA_PER_BATHER_M2,
+                 pool_polygon=None):
         self.model_path = model_path
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
@@ -68,6 +82,10 @@ class CrowdDetector:
         self.pool_area_m2 = pool_area_m2
         self.area_per_bather_m2 = area_per_bather_m2
         self.max_capacity = int(pool_area_m2 / area_per_bather_m2)
+
+        # List of (x, y) points in RELATIVE coordinates (0.0-1.0), or
+        # None to count every detected person (no ROI filtering).
+        self.pool_polygon = pool_polygon
 
         self.model = None
         self.model_status = "not_loaded"
@@ -113,9 +131,47 @@ class CrowdDetector:
             return "MODERATE"
         return "LOW"
 
+    # ── Pool region (ROI) filter ──────────────────────────────
+    def is_in_pool(self, box, frame_width, frame_height) -> bool:
+        """box = (x1, y1, x2, y2) in pixel coordinates. Checks the
+        bottom-centre point of the box — where a person meets the
+        water/ground — against the pool polygon. Returns True
+        unconditionally when no polygon is configured, so behaviour is
+        unchanged by default."""
+        if self.pool_polygon is None:
+            return True
+
+        x1, y1, x2, y2 = box
+        x_center = (x1 + x2) / 2.0
+        point = (x_center, float(y2))
+
+        polygon_px = np.array(
+            [(px * frame_width, py * frame_height) for px, py in self.pool_polygon],
+            dtype=np.float32,
+        )
+        return cv2.pointPolygonTest(polygon_px, point, False) >= 0
+
+    def _draw_pool_region(self, frame):
+        """Translucent fill + thin aqua outline showing the configured
+        pool region, so it's visible in the demo. No-op with no polygon."""
+        if not self.pool_polygon:
+            return
+        h, w = frame.shape[:2]
+        pts = np.array(
+            [(int(px * w), int(py * h)) for px, py in self.pool_polygon],
+            dtype=np.int32,
+        )
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [pts], POOL_OUTLINE_COLOR)
+        cv2.addWeighted(overlay, 0.08, frame, 0.92, 0, frame)
+        cv2.polylines(frame, [pts], isClosed=True, color=POOL_OUTLINE_COLOR, thickness=2)
+
     # ── Per-frame processing ─────────────────────────────────
     def process(self, frame):
-        raw_count = self._detect(frame) if self.model is not None else self._simulate()
+        if self.model is not None:
+            raw_count, total_people, people_outside = self._detect(frame)
+        else:
+            raw_count, total_people, people_outside = self._simulate()
 
         # Rolling median removes single-frame flicker without hiding
         # genuine changes in occupancy.
@@ -163,9 +219,11 @@ class CrowdDetector:
             "max_capacity": self.max_capacity,
             "occupancy_pct": occupancy_pct,
             "crowd_alert": crowd_alert,
+            "total_people_detected": total_people,
+            "people_outside_pool": people_outside,
         }
 
-    def _detect(self, frame) -> int:
+    def _detect(self, frame):
         kwargs = {"conf": self.conf_threshold, "iou": self.iou_threshold, "verbose": False}
         if self.imgsz:
             kwargs["imgsz"] = self.imgsz
@@ -173,8 +231,13 @@ class CrowdDetector:
         if self.is_coco_model:
             kwargs["classes"] = [PERSON_CLASS_ID]
 
+        self._draw_pool_region(frame)
+        frame_h, frame_w = frame.shape[:2]
+
         results = self.model(frame, **kwargs)
-        count = 0
+        in_pool_count = 0
+        total_people = 0
+        people_outside = 0
         for result in results:
             for box in result.boxes:
                 cls_id = int(box.cls[0])
@@ -183,12 +246,22 @@ class CrowdDetector:
                 if self.is_coco_model and cls_id != PERSON_CLASS_ID:
                     continue
                 name = self.model.names[cls_id]
-                count += 1
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                draw_box(frame, x1, y1, x2, y2,
-                         f"{name} {float(box.conf[0]):.0%}", SWIMMER_COLOR)
-        return count
+                total_people += 1
 
-    def _simulate(self) -> int:
+                if self.is_in_pool((x1, y1, x2, y2), frame_w, frame_h):
+                    in_pool_count += 1
+                    draw_box(frame, x1, y1, x2, y2,
+                             f"{name} {float(box.conf[0]):.0%}", SWIMMER_COLOR)
+                else:
+                    people_outside += 1
+                    draw_box(frame, x1, y1, x2, y2,
+                             f"{name} {float(box.conf[0]):.0%}", OUT_OF_POOL_COLOR,
+                             thickness=1)
+        return in_pool_count, total_people, people_outside
+
+    def _simulate(self):
         self._sim_count = max(0, min(12, self._sim_count + random.choice([-1, 0, 0, 1])))
-        return self._sim_count
+        # Simulation has no frame to filter, so every simulated person
+        # is treated as in-pool (matches "no polygon = unchanged" default).
+        return self._sim_count, self._sim_count, 0
