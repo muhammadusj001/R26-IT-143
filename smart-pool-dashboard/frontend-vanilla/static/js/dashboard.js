@@ -111,6 +111,19 @@ function updateDashboard(s) {
   setText('garbageLabels', s.garbage.object_labels.length
     ? s.garbage.object_labels.join(', ') : 'No objects detected');
 
+  // Garbage intent (source + throwing-motion intent classification)
+  const gRisk = s.garbage.risk_level || 'NORMAL';
+  setPill('garbageRisk', gRisk,
+    gRisk === 'HIGH' ? 'danger' : (gRisk === 'MEDIUM' ? 'warn' : 'safe'));
+  if (s.garbage.alert_status === 'ALERT') {
+    setText('garbageSource', 'Source: ' + s.garbage.source);
+    setText('garbageIntent',
+      ' · Intent: ' + s.garbage.intent + ' (' + s.garbage.intent_confidence + '%)');
+  } else {
+    setText('garbageSource', 'No intrusion detected');
+    setText('garbageIntent', '');
+  }
+
   // Water quality
   setText('ph', fmt(s.water_quality.ph));
   setText('temperature', fmt(s.water_quality.temperature));

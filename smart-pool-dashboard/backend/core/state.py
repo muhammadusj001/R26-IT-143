@@ -50,6 +50,11 @@ class SystemState:
                 "alert_status": "CLEAR",
                 "total_events": 0,
                 "model_status": "not_loaded",
+                "source": "unknown",
+                "intent": "none",
+                "intent_score": 0.0,
+                "intent_confidence": 0,
+                "risk_level": "NORMAL",
             },
             "water_quality": {
                 "ph": None,
