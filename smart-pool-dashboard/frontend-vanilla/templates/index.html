@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>R26-IT-143 — Smart Pool Monitoring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <div class="logo">
+      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon logo-icon">
+        <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
+        <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
+        <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
+      </svg>
+    </div>
+    <div class="header-title">
+      <h1>AI Smart Swimming Pool Monitoring System</h1>
+      <p>R26-IT-143 — Unified Dashboard · 4 AI Modules</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="risk-badge" id="overallRisk">NORMAL</div>
+    <div class="connection-status">
+      <span class="status-dot disconnected" id="connDot"></span>
+      <span id="connText">Disconnected</span>
+    </div>
+  </div>
+</header>
+
+<main class="main-grid">
+
+  <!-- LEFT: shared live feed -->
+  <section class="left-col">
+    <div class="card camera-card">
+      <div class="card-header">
+        <h2>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          Live CCTV Feed <span class="sub">(shared by Crowd · Drowning · Garbage)</span></h2>
+        <div>
+          <button class="btn btn-start" id="startBtn" onclick="startDetection()">▶ Start</button>
+          <button class="btn btn-stop" id="stopBtn" onclick="stopDetection()" disabled>■ Stop</button>
+        </div>
+      </div>
+      <div class="camera-container">
+        <img id="cameraFeed" alt="camera feed">
+        <span class="live-badge" aria-hidden="true"><span class="live-dot"></span>LIVE</span>
+        <div class="camera-overlay" id="cameraOverlay">Press Start to begin monitoring</div>
+      </div>
+      <div class="camera-meta">
+        <span>FPS: <b id="fps">0</b></span>
+        <span>Frame: <b id="frameNum">0</b></span>
+        <span>Session: <b id="sessionTime">00:00</b></span>
+      </div>
+    </div>
+
+    <div class="card decision-card">
+      <div class="card-header"><h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+        Decision Engine</h2></div>
+      <div class="decision-grid">
+        <div>Maintenance urgency: <b id="maintUrgency" class="pill">LOW</b></div>
+        <ul id="decisionNotes" class="notes"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: module cards -->
+  <section class="right-col">
+
+    <div class="card" id="crowdCard">
+      <div class="card-header"><h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Crowd Detection</h2>
+        <span class="model-status" id="crowdModel">–</span></div>
+      <div class="stat-row">
+        <div class="stat"><span class="stat-val" id="swimmerCount">0</span><span class="stat-label">Swimmers</span></div>
+        <div class="stat"><span class="stat-val" id="densityLevel">LOW</span><span class="stat-label">Density</span></div>
+        <div class="stat"><span class="stat-val" id="batherLoad">0</span><span class="stat-label">Bather Load</span></div>
+      </div>
+      <div class="recommendation" id="maintRec">–</div>
+    </div>
+
+    <div class="card" id="drowningCard">
+      <div class="card-header"><h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        Drowning Detection</h2>
+        <span class="model-status" id="drownModel">–</span></div>
+      <div class="stat-row">
+        <div class="stat"><span class="stat-val ok" id="swimming">0</span><span class="stat-label">Swimming</span></div>
+        <div class="stat"><span class="stat-val danger" id="drowningCount">0</span><span class="stat-label">Drowning</span></div>
+        <div class="stat"><span class="stat-val" id="outOfWater">0</span><span class="stat-label">Out of Water</span></div>
+      </div>
+      <div class="recommendation"><span id="drownStatus" class="pill safe">SAFE</span>
+        &nbsp;Alerts this session: <b id="totalDrownAlerts">0</b></div>
+    </div>
+
+    <div class="card" id="garbageCard">
+      <div class="card-header"><h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        Garbage Detection</h2>
+        <span class="model-status" id="garbageModel">–</span></div>
+      <div class="stat-row">
+        <div class="stat"><span class="stat-val" id="garbageCount">0</span><span class="stat-label">Objects</span></div>
+        <div class="stat"><span class="stat-val" id="garbageStatus">CLEAR</span><span class="stat-label">Status</span></div>
+        <div class="stat"><span class="stat-val" id="garbageEvents">0</span><span class="stat-label">Events</span></div>
+      </div>
+      <div class="recommendation" id="garbageLabels">No objects detected</div>
+    </div>
+
+    <div class="card" id="waterCard">
+      <div class="card-header"><h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.5-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7Z"/></svg>
+        Water Quality</h2>
+        <span class="model-status" id="waterModel">–</span></div>
+      <div class="stat-row wq">
+        <div class="stat"><span class="stat-val" id="ph">–</span><span class="stat-label">pH</span></div>
+        <div class="stat"><span class="stat-val" id="temperature">–</span><span class="stat-label">Temp °C</span></div>
+        <div class="stat"><span class="stat-val" id="chlorine">–</span><span class="stat-label">Cl ppm</span></div>
+        <div class="stat"><span class="stat-val" id="turbidity">–</span><span class="stat-label">NTU</span></div>
+        <div class="stat"><span class="stat-val" id="tds">–</span><span class="stat-label">TDS</span></div>
+      </div>
+      <div class="recommendation"><span id="waterStatus" class="pill">UNKNOWN</span>
+        &nbsp;Sensor: <b id="sensorConn">–</b></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>
+        Recent Alerts</h2></div>
+      <ul class="alert-list" id="alertList"><li class="muted">No alerts yet</li></ul>
+    </div>
+
+  </section>
+</main>
+
+<script src="/static/js/dashboard.js"></script>
+</body>
+</html>

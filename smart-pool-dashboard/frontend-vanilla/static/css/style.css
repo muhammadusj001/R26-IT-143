@@ -1,0 +1,377 @@
+/* R26-IT-143 — Unified Dashboard styles */
+/* Premium control-room theme: deep navy glass, aqua accent, status colors */
+
+:root {
+  --bg: #0b1220;
+  --surface: rgba(255, 255, 255, 0.035);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent: #22d3ee;
+  --accent-glow: rgba(34, 211, 238, 0.35);
+  --text: #e6edf3;
+  --text-dim: #8b98ab;
+  --text-faint: #5b6b81;
+  --safe: #34d399;
+  --safe-soft: rgba(52, 211, 153, 0.14);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --gap: 24px;
+  --gap-sm: 16px;
+  --t: 200ms ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+/* NOTE: deliberately no `overflow-x: hidden` on html/body. Setting
+   overflow on either axis of the root/body implicitly promotes the
+   other axis to `auto` per the CSS Overflow spec, which turns body
+   into its own scroll container — and position:sticky children (the
+   header) then stick relative to THAT box instead of the viewport,
+   breaking sticky and causing exactly the "blank on scroll" symptom
+   this fix addresses. Horizontal-overflow safety is instead handled
+   at the content level: max-width:100% on media, min-width:0 and
+   flex-wrap on flex rows that could otherwise force overflow. */
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0) 20%, rgba(0, 0, 0, 0.16) 100%),
+    radial-gradient(circle at 12% -10%, rgba(34, 211, 238, 0.07), transparent 40%),
+    radial-gradient(circle at 100% 0%, rgba(52, 211, 153, 0.045), transparent 35%),
+    var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.header {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 28px;
+  /* Fully solid, opaque fill — no alpha, no backdrop-filter. Combining
+     backdrop-filter with position:sticky is a known cross-browser
+     rendering bug (the sticky element can composite as blank/see-through
+     mid-scroll); a plain opaque color sidesteps that class of bug
+     entirely. Same navy/slate family as the cards, equal-to-slightly
+     darker in tone, with a subtle left-to-right gradient for richness —
+     both stops are 100% opaque so nothing can ever show through. */
+  background: linear-gradient(90deg, #16233a 0%, #0d1725 100%);
+  border-bottom: 1px solid var(--border);
+  /* Clear separation from content below: inset top highlight (glass
+     edge) plus a real drop shadow cast onto the page underneath. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 20px -8px rgba(0, 0, 0, 0.6);
+  flex-wrap: wrap; row-gap: 10px;
+}
+/* Thin accent line under the header that shifts color with overall risk.
+   Driven purely by the risk-badge class dashboard.js already sets on
+   #overallRisk (normal/elevated/high/emergency) — no id or JS changes. */
+.header::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: linear-gradient(90deg, var(--safe), #5eead4, var(--safe));
+  background-size: 200% 100%;
+  animation: accentFlow 3.2s linear infinite;
+}
+@keyframes accentFlow { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
+.header:has(#overallRisk.elevated)::after {
+  background: linear-gradient(90deg, var(--warn), #fde68a, var(--warn));
+  background-size: 200% 100%;
+}
+.header:has(#overallRisk.high)::after {
+  background: linear-gradient(90deg, #fb923c, #fdba74, #fb923c);
+  background-size: 200% 100%;
+}
+.header:has(#overallRisk.emergency)::after {
+  background: linear-gradient(90deg, var(--danger), #fca5a5, var(--danger));
+  background-size: 200% 100%;
+}
+.header-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.logo {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+  flex-shrink: 0;
+}
+.header-title { min-width: 0; }
+.header-title h1 {
+  font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+  color: #f4f8fc; /* brighter than body text so title clearly outranks the subtitle */
+  overflow-wrap: break-word;
+}
+.header-title p { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.header-right { display: flex; align-items: center; gap: 20px; }
+
+.risk-badge {
+  padding: 6px 18px; border-radius: 999px; font-weight: 700; font-size: 12.5px;
+  letter-spacing: 0.04em;
+  background: var(--safe-soft); color: var(--safe);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  transition: background var(--t), color var(--t), border-color var(--t);
+}
+.risk-badge.elevated {
+  background: var(--warn-soft); color: var(--warn); border-color: rgba(251, 191, 36, 0.3);
+  animation: badgePulse 2.2s ease-in-out infinite;
+}
+.risk-badge.high {
+  background: rgba(251, 146, 60, 0.14); color: #fb923c; border-color: rgba(251, 146, 60, 0.3);
+  animation: badgePulse 1.7s ease-in-out infinite;
+}
+.risk-badge.emergency {
+  background: var(--danger-soft); color: var(--danger); border-color: rgba(248, 113, 113, 0.35);
+  animation: badgePulse 1s ease-in-out infinite;
+}
+@keyframes badgePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+.connection-status { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-dim); }
+.status-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  transition: background var(--t), box-shadow var(--t);
+}
+.status-dot.connected { background: var(--safe); box-shadow: 0 0 8px rgba(52, 211, 153, 0.6); }
+.status-dot.disconnected { background: var(--danger); box-shadow: 0 0 8px rgba(248, 113, 113, 0.5); }
+
+/* ── Layout ─────────────────────────────────────────────── */
+.main-grid {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--gap); padding: var(--gap);
+}
+@media (max-width: 1000px) {
+  /* Single column; .left-col (camera + decision engine) is first in
+     source order so it naturally renders above .right-col's module
+     cards once the grid collapses to one column. */
+  .main-grid { grid-template-columns: 1fr; }
+}
+.left-col, .right-col { display: flex; flex-direction: column; gap: var(--gap); }
+
+/* ── Cards ──────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color var(--t), box-shadow var(--t);
+}
+.card:hover { border-color: var(--border-strong); }
+.card.flash {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger), 0 0 24px rgba(248, 113, 113, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+/* Left accent hue per module so the 4 cards are distinguishable at a glance */
+#crowdCard    { border-left: 3px solid #22d3ee; }
+#drowningCard { border-left: 3px solid #f87171; }
+#garbageCard  { border-left: 3px solid #facc15; }
+#waterCard    { border-left: 3px solid #34d399; }
+.card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: var(--gap-sm);
+  flex-wrap: wrap; row-gap: 8px;
+}
+.card-header h2 {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 15px; font-weight: 600;
+}
+.card-header .sub { font-size: 11px; color: var(--text-dim); font-weight: 400; }
+.model-status { font-size: 11px; color: var(--text-dim); }
+.icon { flex-shrink: 0; }
+
+/* Camera */
+.camera-container {
+  position: relative; background: #060b12; border-radius: var(--radius-sm);
+  min-height: 320px; max-width: 100%; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; border: 1px solid var(--border);
+}
+#cameraFeed { width: 100%; max-width: 100%; height: auto; display: block; border-radius: var(--radius-sm); }
+.camera-overlay {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; color: var(--text-dim); font-size: 14px;
+  background: linear-gradient(100deg, #0c1420 25%, #16233a 37%, #0c1420 50%);
+  background-size: 200% 100%;
+  animation: shimmer 2.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.live-badge {
+  position: absolute; top: 12px; right: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 8px; border-radius: 999px;
+  background: rgba(8, 12, 20, 0.65); border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fca5a5; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity var(--t), transform var(--t);
+  backdrop-filter: blur(6px);
+}
+#cameraFeed[src]:not([src=""]) ~ .live-badge { opacity: 1; transform: translateY(0); }
+.live-dot {
+  position: relative;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+  animation: livePulse 1.4s ease-in-out infinite;
+}
+@keyframes livePulse { 50% { opacity: 0.35; } }
+/* Soft expanding pulse ring — only visible while the badge itself is
+   (i.e. while running), since it inherits .live-badge's opacity gate. */
+.live-dot::after {
+  content: "";
+  position: absolute; inset: -5px; border-radius: 50%;
+  border: 1.5px solid var(--danger);
+  animation: livePing 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes livePing {
+  0%   { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+.camera-meta {
+  display: flex; gap: 22px; margin-top: var(--gap-sm); font-size: 13px; color: var(--text-dim);
+}
+.camera-meta b { font-family: "JetBrains Mono", monospace; color: var(--text); font-weight: 600; }
+
+.btn {
+  border: 0; border-radius: 8px; padding: 9px 18px; font-weight: 600;
+  cursor: pointer; font-size: 13px; font-family: "Inter", sans-serif;
+  transition: transform var(--t), opacity var(--t), box-shadow var(--t);
+}
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:disabled { opacity: 0.35; cursor: default; transform: none; }
+.btn-start {
+  background: linear-gradient(135deg, #16a34a, #15803d); color: #fff; margin-right: 6px;
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.25);
+}
+.btn-stop {
+  background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
+}
+
+/* Stats */
+.stat-row { display: flex; gap: 10px; }
+.stat {
+  flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 10px; text-align: center;
+  transition: transform var(--t), border-color var(--t), background var(--t);
+}
+.stat:hover { transform: translateY(-2px); border-color: var(--border-strong); background: var(--surface-hover); }
+.stat-val {
+  display: block; font-family: "JetBrains Mono", monospace;
+  font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+  transition: color var(--t);
+}
+.stat-val.ok { color: var(--safe); }
+.stat-val.danger { color: var(--danger); }
+.stat-label {
+  font-size: 10.5px; color: #9fb0c5; text-transform: uppercase;
+  letter-spacing: 0.08em; margin-top: 4px; display: block; font-weight: 600;
+}
+.stat-row.wq .stat-val { font-size: 18px; }
+
+.recommendation {
+  margin-top: var(--gap-sm); font-size: 13px; color: #c3d0de;
+  background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border);
+  padding: 10px 12px; border-radius: var(--radius-sm);
+}
+
+.pill {
+  display: inline-block; padding: 4px 13px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em;
+  background: rgba(255, 255, 255, 0.06); color: var(--text-dim);
+  border: 1px solid transparent;
+  transition: background var(--t), color var(--t), box-shadow var(--t), border-color var(--t);
+}
+.pill.safe {
+  background: var(--safe-soft); color: var(--safe);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.18); border-color: rgba(52, 211, 153, 0.3);
+}
+.pill.warn {
+  background: var(--warn-soft); color: var(--warn);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.18); border-color: rgba(251, 191, 36, 0.3);
+}
+.pill.danger {
+  background: var(--danger-soft); color: var(--danger);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.18); border-color: rgba(248, 113, 113, 0.3);
+}
+
+/* Decision engine */
+.decision-grid { font-size: 13px; }
+.notes { margin: var(--gap-sm) 0 0 18px; color: var(--text-dim); }
+.notes li { margin-bottom: 5px; }
+
+/* Alerts */
+.alert-list {
+  list-style: none; max-height: 220px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.alert-item {
+  padding: 8px 11px; border-radius: 8px; font-size: 12.5px; line-height: 1.4;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border); border-left: 3px solid var(--warn);
+  color: var(--text-dim);
+}
+.alert-item b {
+  color: var(--text); font-family: "JetBrains Mono", monospace;
+  font-weight: 600; font-size: 11.5px;
+}
+.alert-item.danger { border-left-color: var(--danger); }
+.alert-item:first-child { animation: alertFadeIn 320ms ease-out; }
+@keyframes alertFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.muted { color: var(--text-faint); font-size: 13px; list-style: none; }
+
+.alert-list::-webkit-scrollbar { width: 6px; }
+.alert-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+/* ── Touch targets ──────────────────────────────────────── */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; padding: 11px 20px; }
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 700px) {
+  :root { --gap: 16px; --gap-sm: 12px; }
+  /* Compact sticky header — stays fixed, but takes less screen height */
+  .header { padding: 9px 16px; }
+  .header-left { gap: 10px; }
+  .logo svg { width: 20px; height: 20px; }
+  .header-right { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .risk-badge { display: inline-block; padding: 4px 13px; font-size: 11px; }
+  .connection-status { font-size: 12px; }
+  .header-title h1 { font-size: 15px; }
+  .header-title p { font-size: 10px; margin-top: 1px; }
+  .card { padding: 14px 14px; }
+  .camera-container { min-height: 220px; }
+  .camera-meta { flex-wrap: wrap; gap: 8px 18px; }
+  /* Stat tiles: 2 per row instead of 3 */
+  .stat-row { flex-wrap: wrap; }
+  .stat-row .stat { flex: 1 1 calc(50% - 5px); }
+  .stat-val { font-size: 21px; }
+  .stat-row.wq .stat-val { font-size: 16px; }
+}
+
+@media (max-width: 480px) {
+  .main-grid { padding: 12px; gap: 12px; }
+  .card { padding: 12px 12px; }
+  .header { padding: 8px 12px; }
+  .header-title h1 { font-size: 14px; }
+  .card-header .sub { display: none; } /* long subtitle, drop it at this width */
+  /* Stat tiles: full width */
+  .stat-row .stat { flex: 1 1 100%; }
+  .camera-meta { gap: 6px 14px; font-size: 12px; }
+}
+
+/* ── Motion preference ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

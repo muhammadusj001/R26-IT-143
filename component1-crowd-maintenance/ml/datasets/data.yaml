@@ -1,0 +1,12 @@
+# YOLO training dataset configuration for swimmer detection
+# Component 1: Crowd-Aware Maintenance
+
+path: C:/Users/muham/Desktop/R26-IT-143-multirepo-system/component1-crowd-maintenance/ml/datasets
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 1
+names:
+  - swimmer
+
