@@ -158,6 +158,16 @@
   </section>
 </main>
 
+<div class="modal-overlay" id="testModalOverlay" hidden onclick="if (event.target === this) closeTestModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Water Quality Test</h3>
+      <button class="modal-close" id="testModalClose" onclick="closeTestModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="testModalBody"></div>
+  </div>
+</div>
+
 <script src="/static/js/dashboard.js"></script>
 </body>
 </html>

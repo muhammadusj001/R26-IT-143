@@ -178,6 +178,13 @@ body {
 }
 .card-header .sub { font-size: 11px; color: var(--text-dim); font-weight: 400; }
 .model-status { font-size: 11px; color: var(--text-dim); }
+.wq-header-actions { display: flex; align-items: center; gap: 10px; }
+.btn-test {
+  padding: 5px 12px; font-size: 11.5px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06); color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-test:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
 .icon { flex-shrink: 0; }
 
 /* Camera */
@@ -404,6 +411,52 @@ body {
   .stat-row .stat { flex: 1 1 100%; }
   .camera-meta { gap: 6px 14px; font-size: 12px; }
 }
+
+/* ── Water quality test popup ──────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(4, 8, 14, 0.6); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal {
+  width: 100%; max-width: 420px; max-height: calc(100vh - 40px); overflow-y: auto;
+  background: #101a2c; border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 15px; font-weight: 700; }
+.modal-close {
+  background: none; border: 0; color: var(--text-dim); font-size: 22px;
+  line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+}
+.modal-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.modal-body { padding: 20px; }
+
+.test-phase { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.test-progress-bar {
+  height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.test-progress-fill {
+  height: 100%; background: linear-gradient(90deg, var(--accent), #5eead4);
+  transition: width 0.4s linear;
+}
+.test-meta {
+  display: flex; justify-content: space-between; margin-top: 8px;
+  font-size: 12px; color: var(--text-dim); font-family: "JetBrains Mono", monospace;
+}
+.test-samples { margin-top: 14px; font-size: 13px; color: #c3d0de; }
+
+.test-result-status { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.test-sample-count { font-size: 12px; color: var(--text-dim); }
+.test-result-grid { margin-bottom: 14px; }
+.test-reasons { margin: 0 0 16px 18px; font-size: 13px; color: #c3d0de; }
+.test-reasons li { margin-bottom: 6px; }
+.test-reasons-none { font-size: 13px; color: var(--safe); margin-bottom: 16px; }
 
 /* ── Motion preference ──────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
