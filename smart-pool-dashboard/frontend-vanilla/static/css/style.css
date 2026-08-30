@@ -286,6 +286,14 @@ body {
 }
 .stat-val.ok { color: var(--safe); }
 .stat-val.danger { color: var(--danger); }
+/* Marks a single water-quality value as a safe-default substitute for a
+   sensor that errored this cycle, not a live reading — see setSensorVal()
+   in dashboard.js. Dashed underline via background instead of
+   text-decoration so it stays legible at the stat tile's large font size. */
+.stat-val.fallback {
+  color: var(--warn);
+  border-bottom: 2px dashed var(--warn);
+}
 .stat-label {
   font-size: 10.5px; color: #9fb0c5; text-transform: uppercase;
   letter-spacing: 0.08em; margin-top: 4px; display: block; font-weight: 600;

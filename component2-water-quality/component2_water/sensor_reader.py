@@ -184,15 +184,18 @@ class SensorReader:
             return False
 
     def read(self):
-        """Return dict of 5 readings, or None if unavailable (not yet a
-        full block, still warming up, or disconnected). See module
-        docstring for the line format being parsed."""
+        """Return dict of 5 readings plus "fallback_fields" (sensor keys
+        substituted from SAFE_DEFAULTS this cycle, if any), or None if
+        unavailable (no complete cycle seen yet, still warming up, or
+        disconnected). See module docstring for the line format and the
+        per-sensor fallback behaviour."""
         if self.simulated:
             return self._simulate()
         if not self.serial or not self.connected:
             return None
         try:
             block = {}
+            seen = set()
             deadline = time.time() + READ_BLOCK_TIMEOUT_S
             while time.time() < deadline:
                 line = self.serial.readline().decode(errors="ignore").strip()
@@ -200,19 +203,27 @@ class SensorReader:
                     continue
                 if line.startswith("---"):
                     block = {}  # separator marks the start of a fresh cycle
+                    seen = set()
                     continue
-                for key, pattern in _LINE_PATTERNS.items():
+                for key, (prefix, pattern) in _LINE_PATTERNS.items():
+                    if not line.startswith(prefix):
+                        continue
+                    seen.add(key)  # a line for this sensor arrived, valid or not
                     match = pattern.match(line)
                     if match:
                         block[key] = float(match.group(1))
-                        break
+                    break
 
-                if len(block) == len(_LINE_PATTERNS):
+                if seen == _LINE_PATTERNS.keys():
                     if self.warming_up:
                         return None  # sensors still settling — discard
+                    fallback_fields = [k for k in _LINE_PATTERNS if k not in block]
+                    for key in fallback_fields:
+                        block[key] = SAFE_DEFAULTS[key]
                     block["chlorine"] = CHLORINE_PLACEHOLDER_PPM
+                    block["fallback_fields"] = fallback_fields
                     return block
-            return None  # no complete, valid block within the timeout
+            return None  # no complete cycle observed within the timeout
         except (ValueError, OSError):
             self.connected = False
             self.connected_at = None
@@ -226,4 +237,4 @@ class SensorReader:
         s["chlorine"] = min(3.5, max(0.2, s["chlorine"] + random.uniform(-0.06, 0.05)))
         s["turbidity"] = min(6.0, max(0.2, s["turbidity"] + random.uniform(-0.15, 0.16)))
         s["tds"] = min(520, max(280, s["tds"] + random.uniform(-4, 4)))
-        return {k: round(v, 2) for k, v in s.items()}
+        return {**{k: round(v, 2) for k, v in s.items()}, "fallback_fields": []}

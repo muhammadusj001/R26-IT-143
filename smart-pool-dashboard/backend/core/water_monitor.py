@@ -75,6 +75,7 @@ class WaterQualityMonitor:
                     "sensor_connected": self.reader.connected,
                     "simulated": self.reader.simulated,
                     "warming_up": self.reader.warming_up,
+                    "fallback_fields": [],
                     "model_status": self.predictor.model_status,
                 })
                 self._tick_test(None)

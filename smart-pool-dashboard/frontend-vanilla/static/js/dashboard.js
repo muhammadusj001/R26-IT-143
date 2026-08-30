@@ -125,11 +125,12 @@ function updateDashboard(s) {
   }
 
   // Water quality
-  setText('ph', fmt(s.water_quality.ph));
-  setText('temperature', fmt(s.water_quality.temperature));
-  setText('chlorine', fmt(s.water_quality.chlorine));
-  setText('turbidity', fmt(s.water_quality.turbidity));
-  setText('tds', fmt(s.water_quality.tds));
+  const fallbackFields = new Set(s.water_quality.fallback_fields || []);
+  setSensorVal('ph', 'ph', s.water_quality.ph, fallbackFields);
+  setSensorVal('temperature', 'temperature', s.water_quality.temperature, fallbackFields);
+  setText('chlorine', fmt(s.water_quality.chlorine)); // always a placeholder — no chlorine sensor at all, unrelated to per-cycle fallback
+  setSensorVal('turbidity', 'turbidity', s.water_quality.turbidity, fallbackFields);
+  setSensorVal('tds', 'tds', s.water_quality.tds, fallbackFields);
   if (s.water_quality.simulated) {
     setPill('sensorConn', 'SIMULATED', 'warn');
   } else if (s.water_quality.warming_up) {
@@ -214,6 +215,20 @@ function generateReport() {
 }
 
 // ── Helpers ─────────────────────────────────────────────────
+// Renders one water-quality stat, marking it visibly (amber + tooltip)
+// when the backend substituted a safe default because that one sensor's
+// line errored this cycle — the value is real, this is a fallback for a
+// single field, never the whole reading, but it must never be shown as
+// if it were a live measurement.
+function setSensorVal(id, key, value, fallbackFields) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = fmt(value);
+  const isFallback = fallbackFields.has(key);
+  el.classList.toggle('fallback', isFallback);
+  el.title = isFallback ? 'Safe default — this sensor errored this cycle' : '';
+}
+
 function setText(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
 function setPill(id, text, cls) {
   const e = document.getElementById(id);

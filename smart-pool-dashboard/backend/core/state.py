@@ -66,6 +66,7 @@ class SystemState:
                 "sensor_connected": False,
                 "simulated": False,
                 "warming_up": False,
+                "fallback_fields": [],
                 "model_status": "not_loaded",
                 "test": {
                     "status": "idle",

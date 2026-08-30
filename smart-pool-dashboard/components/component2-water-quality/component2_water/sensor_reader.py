@@ -10,13 +10,20 @@ prints one labelled line per sensor per cycle (not a single CSV line):
     Turbidity: 0.0 NTU  ->  GOOD (safe/clear)
     TDS: 5 ppm  ->  GOOD (excellent/good)
 read() accumulates lines (each "---" separator starts a fresh block) until
-one of each of the 4 required lines has been seen, then returns that
-reading. Lines that don't parse as a number for their sensor (an "ERROR"
-or "not calibrated" line, a banner, calibration-command output, etc.) are
-skipped rather than treated as garbage. A full Arduino cycle here takes
+one line for each of the 4 sensors has been seen, then returns a reading.
+The sketch always prints exactly one line per sensor per cycle even on
+error ("Temp: ERROR ...", "pH: not calibrated"), so "one line seen" and
+"a valid number was on it" are tracked separately: if a sensor's line
+didn't parse as a number, ONLY that sensor's value is replaced with
+SAFE_DEFAULTS[sensor] for this reading — the other 3 sensors' real
+readings are still returned normally, not withheld. Which fields (if any)
+were substituted this way is reported back in "fallback_fields", so a
+transient glitch on one sensor never blanks the whole card and is never
+silently presented as a live reading. A full Arduino cycle here takes
 several seconds (each sensor averages 100 samples), so read() blocks up
-to READ_BLOCK_TIMEOUT_S waiting for a complete block, returning None if
-none arrives in time (real disconnect, or a persistently erroring sensor).
+to READ_BLOCK_TIMEOUT_S waiting for a complete cycle, returning None only
+if no cycle's worth of lines arrives at all in that time (real
+disconnect) — not merely because one sensor keeps erroring.
 
 Freshly-powered sensors (pH especially) drift for the first ~20s after
 the serial connection opens, so read() discards readings collected
@@ -54,17 +61,28 @@ CHLORINE_PLACEHOLDER_PPM = 1.8  # mid-range "ideal" value -- see module docstrin
 WARMUP_SECONDS = 20        # discard readings until this long after connecting
 READ_BLOCK_TIMEOUT_S = 10  # give one full Arduino cycle (~5-6s) headroom
 
-# One regex per sensor line the sketch prints; each captures the leading
-# number and ignores whatever unit/verdict text follows ("Temp: 30.4 C",
-# "TDS: 5 ppm  ->  GOOD (excellent/good)", ...). A line that doesn't match
-# its sensor's pattern (e.g. "pH: ERROR (unstable signal)", "Turbidity:
-# not calibrated") is simply not captured, so that block waits for a
-# later, valid line for the same sensor instead of failing outright.
+# Used ONLY to fill in a single sensor whose line errored/wasn't
+# calibrated this cycle ("Temp: ERROR ...", "pH: not calibrated") — never
+# as a substitute for a whole reading. Each is a safe mid-range pool
+# value, chosen so a one-sensor glitch can't itself push the model's
+# classification toward WARNING/CRITICAL.
+SAFE_DEFAULTS = {
+    "temperature": 27.0,
+    "ph": 7.4,
+    "turbidity": 0.5,
+    "tds": 350.0,
+}
+
+# One (prefix, regex) pair per sensor line the sketch prints. The prefix
+# alone identifies "a line for this sensor was seen" (even on error); the
+# regex additionally captures the leading number when there is one, and
+# ignores whatever unit/verdict text follows ("Temp: 30.4 C", "TDS: 5 ppm
+# -> GOOD (excellent/good)", ...).
 _LINE_PATTERNS = {
-    "temperature": re.compile(r"^Temp:\s*(-?\d+\.?\d*)"),
-    "ph": re.compile(r"^pH:\s*(-?\d+\.?\d*)"),
-    "turbidity": re.compile(r"^Turbidity:\s*(-?\d+\.?\d*)"),
-    "tds": re.compile(r"^TDS:\s*(-?\d+\.?\d*)"),
+    "temperature": ("Temp:", re.compile(r"^Temp:\s*(-?\d+\.?\d*)")),
+    "ph": ("pH:", re.compile(r"^pH:\s*(-?\d+\.?\d*)")),
+    "turbidity": ("Turbidity:", re.compile(r"^Turbidity:\s*(-?\d+\.?\d*)")),
+    "tds": ("TDS:", re.compile(r"^TDS:\s*(-?\d+\.?\d*)")),
 }
 
 
@@ -166,15 +184,18 @@ class SensorReader:
             return False
 
     def read(self):
-        """Return dict of 5 readings, or None if unavailable (not yet a
-        full block, still warming up, or disconnected). See module
-        docstring for the line format being parsed."""
+        """Return dict of 5 readings plus "fallback_fields" (sensor keys
+        substituted from SAFE_DEFAULTS this cycle, if any), or None if
+        unavailable (no complete cycle seen yet, still warming up, or
+        disconnected). See module docstring for the line format and the
+        per-sensor fallback behaviour."""
         if self.simulated:
             return self._simulate()
         if not self.serial or not self.connected:
             return None
         try:
             block = {}
+            seen = set()
             deadline = time.time() + READ_BLOCK_TIMEOUT_S
             while time.time() < deadline:
                 line = self.serial.readline().decode(errors="ignore").strip()
@@ -182,19 +203,27 @@ class SensorReader:
                     continue
                 if line.startswith("---"):
                     block = {}  # separator marks the start of a fresh cycle
+                    seen = set()
                     continue
-                for key, pattern in _LINE_PATTERNS.items():
+                for key, (prefix, pattern) in _LINE_PATTERNS.items():
+                    if not line.startswith(prefix):
+                        continue
+                    seen.add(key)  # a line for this sensor arrived, valid or not
                     match = pattern.match(line)
                     if match:
                         block[key] = float(match.group(1))
-                        break
+                    break
 
-                if len(block) == len(_LINE_PATTERNS):
+                if seen == _LINE_PATTERNS.keys():
                     if self.warming_up:
                         return None  # sensors still settling — discard
+                    fallback_fields = [k for k in _LINE_PATTERNS if k not in block]
+                    for key in fallback_fields:
+                        block[key] = SAFE_DEFAULTS[key]
                     block["chlorine"] = CHLORINE_PLACEHOLDER_PPM
+                    block["fallback_fields"] = fallback_fields
                     return block
-            return None  # no complete, valid block within the timeout
+            return None  # no complete cycle observed within the timeout
         except (ValueError, OSError):
             self.connected = False
             self.connected_at = None
@@ -208,4 +237,4 @@ class SensorReader:
         s["chlorine"] = min(3.5, max(0.2, s["chlorine"] + random.uniform(-0.06, 0.05)))
         s["turbidity"] = min(6.0, max(0.2, s["turbidity"] + random.uniform(-0.15, 0.16)))
         s["tds"] = min(520, max(280, s["tds"] + random.uniform(-4, 4)))
-        return {k: round(v, 2) for k, v in s.items()}
+        return {**{k: round(v, 2) for k, v in s.items()}, "fallback_fields": []}
