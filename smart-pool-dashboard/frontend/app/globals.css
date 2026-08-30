@@ -102,6 +102,26 @@ body {
 .pill.warn   { background: #3a2f14; color: #facc15; }
 .pill.danger { background: #401515; color: #f87171; }
 
+/* Water quality: 60s final-reading test */
+.wq-test { margin-top: 12px; }
+.btn-test {
+  width: 100%; background: #1e3a5f; color: #93c5fd; border: 1px solid #2c4a70;
+}
+.btn-test:not(:disabled):hover { background: #24466f; }
+.test-progress-bar {
+  margin-top: 8px; height: 5px; border-radius: 3px; background: #0d1725; overflow: hidden;
+}
+.test-progress-fill { height: 100%; background: #3b82f6; transition: width 0.3s linear; }
+.test-progress-note { margin-top: 5px; }
+.test-result {
+  margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: #0d1725;
+  border-left: 3px solid #facc15;
+}
+.test-result.safe { border-left-color: #4ade80; }
+.test-result.critical { border-left-color: #f87171; }
+.test-result-header { font-size: 12.5px; color: #c3d0de; margin-bottom: 6px; }
+.test-result .stat-row.wq { margin-top: 2px; }
+
 /* Decision engine */
 .decision-grid { font-size: 13px; }
 .notes { margin: 10px 0 0 18px; color: #9fb0c3; }

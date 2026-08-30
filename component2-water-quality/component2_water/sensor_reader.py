@@ -1,22 +1,31 @@
 """
 Component 2 — sensor input layer.
 
-The Arduino serial-parsing logic is preserved UNCHANGED from the
-original scripts/app.py:
-  - reads a line, skips blanks and the "System Ready" banner
-  - expects exactly 5 comma-separated values:
-    pH, Temperature, Chlorine, Turbidity, TDS
+Real-serial parsing matches the calibrated Arduino sketch in
+arduino/pool_water_quality_sensors/pool_water_quality_sensors.ino:
+  - reads a line, skips blanks and anything that isn't a "DATA:" line
+    (banners, CALHELP text, "CALGOOD saved.", the separate "RAW:" line, etc.)
+  - a "DATA:" line carries exactly 4 comma-separated values, in this order:
+    pH, Temperature, Turbidity, TDS
   - skips malformed lines instead of crashing
 
-Added around it (architecture only):
-  - the serial port comes from settings instead of a hardcoded
-    "/dev/cu.usbmodem21401"
-  - a simulator mode generates realistic values when no Arduino is
-    connected, so the dashboard card always works
+No chlorine sensor is wired on the physical rig, but the trained model
+(component2-water-quality/models/) expects 5 features including Chlorine
+(see predictor.py). CHLORINE_PLACEHOLDER_PPM below stands in for a real
+reading until either a chlorine sensor is added to the Arduino sketch, or
+the model is retrained on 4 features. This is a placeholder, not a fix.
+
+Added around the original parsing (architecture only):
+  - the serial port comes from settings instead of a hardcoded path
+  - a simulator mode generates realistic values (including chlorine) when
+    no Arduino is connected, so the dashboard card always works
   - sensor failure is reported instead of raising
 """
 
 import random
+
+CHLORINE_PLACEHOLDER_PPM = 1.8  # mid-range "ideal" value -- see module docstring
+
 
 class SensorReader:
     def __init__(self, source="simulate", baud_rate=9600):
@@ -53,19 +62,21 @@ class SensorReader:
         if not self.serial:
             return None
         try:
-            # ── Original Component 2 parsing logic (unchanged) ──
             line = self.serial.readline().decode(errors="ignore").strip()
-            if line == "" or line == "System Ready":
+            if not line.startswith("DATA:"):
+                return None  # banner / CALHELP / RAW: / calibration ack line
+
+            values = line[len("DATA:"):].split(",")
+            if len(values) != 4:
                 return None
-            values = line.split(",")
-            if len(values) != 5:
-                return None
+
+            ph, temperature, turbidity, tds = (float(v) for v in values)
             return {
-                "ph": float(values[0]),
-                "temperature": float(values[1]),
-                "chlorine": float(values[2]),
-                "turbidity": float(values[3]),
-                "tds": float(values[4]),
+                "ph": ph,
+                "temperature": temperature,
+                "chlorine": CHLORINE_PLACEHOLDER_PPM,
+                "turbidity": turbidity,
+                "tds": tds,
             }
         except (ValueError, OSError):
             self.connected = False

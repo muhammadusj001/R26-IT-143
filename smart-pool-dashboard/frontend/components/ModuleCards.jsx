@@ -50,10 +50,16 @@ export function GarbageCard({ garbage }) {
   );
 }
 
-export function WaterCard({ wq }) {
-  const tone =
-    wq.status === "SAFE" ? "safe" : wq.status === "CRITICAL" ? "danger" : "warn";
+function statusTone(status) {
+  return status === "SAFE" ? "safe" : status === "CRITICAL" ? "danger" : "warn";
+}
+
+export function WaterCard({ wq, onStartTest }) {
   const f = (v) => (v === null || v === undefined ? "–" : v);
+  const test = wq.test || { status: "idle", elapsed: 0, duration: 60, warmup: 20, samples_collected: 0, result: null };
+  const testRunning = test.status === "running";
+  const result = test.result;
+
   return (
     <Card title="💧 Water Quality" status={wq.model_status}>
       <div className="stat-row wq">
@@ -64,8 +70,53 @@ export function WaterCard({ wq }) {
         <Stat value={f(wq.tds)} label="TDS" />
       </div>
       <div className="recommendation">
-        <Pill text={wq.status} tone={tone} />
+        <Pill text={wq.status} tone={statusTone(wq.status)} />
         {"  "}Sensor: <b>{wq.sensor_connected ? "connected" : "offline"}</b>
+      </div>
+
+      <div className="wq-test">
+        <button className="btn btn-test" onClick={onStartTest} disabled={testRunning}>
+          {testRunning ? `Testing… ${Math.round(test.elapsed)}s / ${test.duration}s` : "▶ Take Final Reading (60s)"}
+        </button>
+
+        {testRunning && (
+          <>
+            <div className="test-progress-bar">
+              <div
+                className="test-progress-fill"
+                style={{ width: `${Math.min(100, (test.elapsed / test.duration) * 100)}%` }}
+              />
+            </div>
+            <div className="muted test-progress-note">
+              {test.elapsed < test.warmup
+                ? `Warming up… averaging starts at ${test.warmup}s`
+                : `Collecting samples… ${test.samples_collected} so far`}
+            </div>
+          </>
+        )}
+
+        {test.status === "complete" && result && (
+          <div className={`test-result ${result.status.toLowerCase()}`}>
+            <div className="test-result-header">
+              Final reading (avg of {result.sample_count} samples):{" "}
+              <Pill text={result.status} tone={statusTone(result.status)} />
+            </div>
+            <div className="stat-row wq">
+              <Stat value={f(result.ph)} label="pH" />
+              <Stat value={f(result.temperature)} label="Temp °C" />
+              <Stat value={f(result.chlorine)} label="Cl ppm" />
+              <Stat value={f(result.turbidity)} label="NTU" />
+              <Stat value={f(result.tds)} label="TDS" />
+            </div>
+            {result.reasons?.length > 0 && (
+              <ul className="notes">
+                {result.reasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   );

@@ -262,6 +262,15 @@ def stop_detection():
     emit("detection_stopped", {"message": "Detection stopped"})
 
 
+@socketio.on("start_water_test")
+def start_water_test():
+    water.start_test()
+    # Broadcast (not the request-scoped `emit`) so every connected
+    # dashboard reflects the test starting, matching how regular water
+    # readings are pushed via water.on_update.
+    socketio.emit("state_update", state.snapshot())
+
+
 def main():
     print("=" * 60)
     print("  R26-IT-143 — SMART POOL MONITORING (UNIFIED)")

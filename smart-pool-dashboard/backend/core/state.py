@@ -65,6 +65,14 @@ class SystemState:
                 "status": "UNKNOWN",
                 "sensor_connected": False,
                 "model_status": "not_loaded",
+                "test": {
+                    "status": "idle",
+                    "elapsed": 0,
+                    "duration": 60,
+                    "warmup": 20,
+                    "samples_collected": 0,
+                    "result": None,
+                },
             },
             "decision": {
                 "overall_risk": "NORMAL",
