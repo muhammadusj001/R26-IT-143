@@ -1,460 +1,465 @@
+// =====================================================
+// WATER QUALITY MONITOR - pH + TURBIDITY + TEMP + TDS
+// Arduino Uno
+//
+// WIRING:
+//   pH module:        V+ -> 3.3V,  G -> GND,  Po   -> A1
+//   Turbidity module: VCC -> 5V,   GND -> GND, AOUT -> A0
+//   TDS module:       VCC -> 5V,   GND -> GND, AOUT -> A2
+//   DS18B20 temp:     VCC -> 5V,   GND -> GND, DATA -> D2
+//                     + 4.7k resistor between DATA and 5V
+//
+// LIBRARIES NEEDED:
+//   - OneWire
+//   - DallasTemperature
+//
+// pH COMMANDS:   CAL4 / CAL7 / CAL9
+// TURB COMMANDS: CALCLEAR / CALDIRTY
+// GENERAL:       SHOW / RESET
+// =====================================================
+
+#include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <EEPROM.h>
 
-// ========================================
-// PIN CONNECTIONS
-// ========================================
-#define PH_PIN A0
-#define TURBIDITY_PIN A1
-#define TDS_PIN A2
-#define ONE_WIRE_BUS 2
+// ---------------- PIN CONFIG ----------------
+#define PH_PIN        A1
+#define TURBIDITY_PIN A0
+#define TDS_PIN       A2
+#define TEMP_PIN      2
 
-// ========================================
-// SETTINGS
-// ========================================
-#define VREF 5.0
-#define ADC_MAX 1023.0
+// ---------------- TEMP SETUP ----------------
+OneWire oneWire(TEMP_PIN);
+DallasTemperature tempSensor(&oneWire);
 
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature temperatureSensor(&oneWire);
+// ---------------- ADC / VOLTAGE ----------------
+const float PH_VREF   = 3.3;
+const float TURB_VREF = 5.0;
+const float TDS_VREF  = 5.0;
+const float ADC_MAX_VALUE = 1023.0;
 
-// ========================================
-// TWO-POINT CALIBRATION
-//
-// The backend/frontend (backend/main.py POST /api/calibrate, the
-// CalibrationTrigger button) already send "CALGOOD <ph> <turbidity> <tds>"
-// and "CALCRITICAL <ph> <turbidity> <tds>" over serial, expecting the
-// sketch to capture a live sensor reading as a reference point. Until
-// both a GOOD and a CRITICAL point exist for a sensor, that sensor falls
-// back to the old uncalibrated datasheet-curve estimate below -- those
-// generic curves are fit to DFRobot's own reference circuit, not this
-// one, which is why raw voltage fed through them can read wildly high
-// (e.g. thousands of NTU) even with the sensor correctly wired.
-// ========================================
-struct Calibration
-{
-    float goodVoltage;
-    float criticalVoltage;
-    float goodTarget;
-    float criticalTarget;
-    bool goodSet;
-    bool criticalSet;
+// ---------------- pH BUFFER VALUES (30C) ----------------
+const float PH_LOW  = 4.01;
+const float PH_MID  = 6.85;
+const float PH_HIGH = 9.14;
+
+// ---------------- TURBIDITY NTU MAP ----------------
+const float CLEAR_NTU = 0.0;
+const float DIRTY_NTU = 1000.0;
+
+// ---------------- TDS ----------------
+// Default temperature used if temp sensor fails
+const float TDS_DEFAULT_TEMP = 25.0;
+// Scaling factor (0.5 typical for Gravity TDS). Increase if
+// readings look low vs a known reference, decrease if high.
+const float TDS_FACTOR = 0.5;
+
+// ---------------- SAMPLING ----------------
+const int SAMPLE_COUNT = 100;
+const int SAMPLE_DELAY_MS = 10;
+const int TRIM_COUNT = 15;
+const float PH_MAX_NOISE_MV   = 50.0;
+const float TURB_MAX_NOISE_MV = 150.0;
+
+// ---------------- EEPROM ADDRESSES ----------------
+const int PH_EEPROM_ADDR   = 0;
+const int TURB_EEPROM_ADDR = 32;
+
+const uint32_t PH_MAGIC   = 0x50484333;
+const uint32_t TURB_MAGIC = 0x54555242;
+
+// ---------------- STRUCTS ----------------
+struct PHCalibration {
+  uint32_t magic;
+  float adcAtLow;
+  float adcAtMid;
+  float adcAtHigh;
 };
 
-Calibration phCal;
-Calibration turbidityCal;
-Calibration tdsCal;
+struct TurbCalibration {
+  uint32_t magic;
+  float voltageClear;
+  float voltageDirty;
+};
 
-#define EEPROM_MAGIC 0xC5
-#define EEPROM_MAGIC_ADDR 0
-#define EEPROM_PH_ADDR 1
-#define EEPROM_TURBIDITY_ADDR (EEPROM_PH_ADDR + sizeof(Calibration))
-#define EEPROM_TDS_ADDR (EEPROM_TURBIDITY_ADDR + sizeof(Calibration))
+struct AnalysisResult {
+  float filteredADC;
+  float voltage;
+  float noiseMV;
+};
 
-// Updated once per loop so the calibration handler always compensates
-// TDS against the latest temperature, even when a CAL command arrives
-// mid-loop.
-float currentTemperatureC = 25.0;
-bool currentTemperatureConnected = false;
+PHCalibration phCal;
+TurbCalibration turbCal;
+int samples[SAMPLE_COUNT];
 
-// ========================================
-// READ AVERAGE ADC
-// ========================================
-float getAverageADC(int pin)
-{
-    long total = 0;
+// last good temperature (used for TDS correction)
+float lastTempC = TDS_DEFAULT_TEMP;
 
-    for (int i = 0; i < 20; i++)
-    {
-        total += analogRead(pin);
-        delay(10);
-    }
+// =====================================================
+// EEPROM LOAD / SAVE
+// =====================================================
 
-    return total / 20.0;
+void savePH()   { phCal.magic = PH_MAGIC;   EEPROM.put(PH_EEPROM_ADDR, phCal); }
+void saveTurb() { turbCal.magic = TURB_MAGIC; EEPROM.put(TURB_EEPROM_ADDR, turbCal); }
+
+void resetPH() {
+  phCal.magic = PH_MAGIC;
+  phCal.adcAtLow = -1.0;
+  phCal.adcAtMid = -1.0;
+  phCal.adcAtHigh = -1.0;
+  savePH();
 }
 
-float getTdsCompensatedVoltage()
-{
-    float tdsVoltage = getAverageADC(TDS_PIN) * VREF / ADC_MAX;
-
-    float compensationCoefficient = 1.0;
-    if (currentTemperatureConnected)
-    {
-        compensationCoefficient = 1.0 + 0.02 * (currentTemperatureC - 25.0);
-    }
-
-    return tdsVoltage / compensationCoefficient;
+void resetTurb() {
+  turbCal.magic = TURB_MAGIC;
+  turbCal.voltageClear = -1.0;
+  turbCal.voltageDirty = -1.0;
+  saveTurb();
 }
 
-// Linear interpolation/extrapolation between the two calibration points.
-float applyCalibration(const Calibration &cal, float voltage)
-{
-    if (cal.criticalVoltage == cal.goodVoltage)
-    {
-        return cal.goodTarget;
-    }
+void loadCalibration() {
+  EEPROM.get(PH_EEPROM_ADDR, phCal);
+  if (phCal.magic != PH_MAGIC) resetPH();
 
-    float t = (voltage - cal.goodVoltage) / (cal.criticalVoltage - cal.goodVoltage);
-    return cal.goodTarget + t * (cal.criticalTarget - cal.goodTarget);
+  EEPROM.get(TURB_EEPROM_ADDR, turbCal);
+  if (turbCal.magic != TURB_MAGIC) resetTurb();
 }
 
-bool isCalibrated(const Calibration &cal)
-{
-    return cal.goodSet && cal.criticalSet;
+// =====================================================
+// CALIBRATION CHECKS
+// =====================================================
+
+bool pointValid(float adc) { return adc > 0 && adc < 1023; }
+
+bool phCalibrated() {
+  return pointValid(phCal.adcAtLow) &&
+         pointValid(phCal.adcAtHigh) &&
+         abs(phCal.adcAtLow - phCal.adcAtHigh) > 5;
 }
 
-// ========================================
-// EEPROM PERSISTENCE
-// ========================================
-void saveCalibration()
-{
-    EEPROM.update(EEPROM_MAGIC_ADDR, EEPROM_MAGIC);
-    EEPROM.put(EEPROM_PH_ADDR, phCal);
-    EEPROM.put(EEPROM_TURBIDITY_ADDR, turbidityCal);
-    EEPROM.put(EEPROM_TDS_ADDR, tdsCal);
+bool turbCalibrated() {
+  if (turbCal.voltageClear <= 0 || turbCal.voltageDirty <= 0) return false;
+  float diff = turbCal.voltageClear - turbCal.voltageDirty;
+  if (diff < 0) diff = -diff;
+  return diff > 0.02;
 }
 
-void loadCalibration()
-{
-    if (EEPROM.read(EEPROM_MAGIC_ADDR) != EEPROM_MAGIC)
-    {
-        return; // nothing saved yet -- sensors stay uncalibrated
-    }
+// =====================================================
+// SHARED ANALOG ANALYSIS
+// =====================================================
 
-    EEPROM.get(EEPROM_PH_ADDR, phCal);
-    EEPROM.get(EEPROM_TURBIDITY_ADDR, turbidityCal);
-    EEPROM.get(EEPROM_TDS_ADDR, tdsCal);
+void sortSamples() {
+  for (int i = 1; i < SAMPLE_COUNT; i++) {
+    int current = samples[i];
+    int j = i - 1;
+    while (j >= 0 && samples[j] > current) {
+      samples[j + 1] = samples[j];
+      j--;
+    }
+    samples[j + 1] = current;
+  }
 }
 
-// ========================================
-// SERIAL CALIBRATION COMMANDS
-// ========================================
-void printCalHelp()
-{
-    Serial.println("Calibration commands:");
-    Serial.println("  CALGOOD <ph> <turbidity> <tds>     - probes dipped in your GOOD reference sample");
-    Serial.println("  CALCRITICAL <ph> <turbidity> <tds> - probes dipped in your CRITICAL reference sample");
-    Serial.println("  CALHELP                            - show this message");
-    Serial.println("Example: CALGOOD 7.2 0.5 400");
+AnalysisResult analysePin(int pin, float vref) {
+  analogRead(pin);
+  delayMicroseconds(300);
+
+  for (int i = 0; i < SAMPLE_COUNT; i++) {
+    samples[i] = analogRead(pin);
+    delay(SAMPLE_DELAY_MS);
+  }
+
+  sortSamples();
+
+  long sum = 0;
+  for (int i = TRIM_COUNT; i < SAMPLE_COUNT - TRIM_COUNT; i++) {
+    sum += samples[i];
+  }
+  int usedSamples = SAMPLE_COUNT - (TRIM_COUNT * 2);
+  float filteredADC = sum / (float)usedSamples;
+
+  int lowerADC = samples[TRIM_COUNT];
+  int upperADC = samples[SAMPLE_COUNT - TRIM_COUNT - 1];
+  float noiseMV = (upperADC - lowerADC) * (vref / ADC_MAX_VALUE) * 1000.0;
+
+  AnalysisResult r;
+  r.filteredADC = filteredADC;
+  r.voltage = filteredADC * vref / ADC_MAX_VALUE;
+  r.noiseMV = noiseMV;
+  return r;
 }
 
-void printCalUsage()
-{
-    Serial.println("Usage: CALGOOD <ph> <turbidity> <tds>  (e.g. CALGOOD 7.2 0.5 400)");
+// =====================================================
+// TEMPERATURE READING
+// =====================================================
+
+float readTemperature() {
+  tempSensor.requestTemperatures();
+  float tempC = tempSensor.getTempCByIndex(0);
+  return tempC;   // -127 if not found
 }
 
-void handleSerialCommands()
-{
-    if (!Serial.available())
-    {
-        return;
+// =====================================================
+// pH CALCULATION
+// =====================================================
+
+float calculatePH(float adc) {
+  bool haveMid = pointValid(phCal.adcAtMid);
+
+  if (haveMid) {
+    float adcMid = phCal.adcAtMid;
+    float adcLow = phCal.adcAtLow;
+    float adcHigh = phCal.adcAtHigh;
+
+    bool acidicSide;
+    if (adcLow > adcHigh) {
+      acidicSide = (adc >= adcMid);
+    } else {
+      acidicSide = (adc <= adcMid);
     }
 
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line.length() == 0)
-    {
-        return;
+    if (acidicSide) {
+      return PH_LOW + (adc - adcLow) * (PH_MID - PH_LOW) / (adcMid - adcLow);
+    } else {
+      return PH_MID + (adc - adcMid) * (PH_HIGH - PH_MID) / (adcHigh - adcMid);
     }
+  }
 
-    if (line.equalsIgnoreCase("CALHELP"))
-    {
-        printCalHelp();
-        return;
-    }
-
-    bool isGood = line.startsWith("CALGOOD");
-    bool isCritical = line.startsWith("CALCRITICAL");
-    if (!isGood && !isCritical)
-    {
-        Serial.println("Unknown command. Type CALHELP for calibration commands.");
-        return;
-    }
-
-    int firstSpace = line.indexOf(' ');
-    if (firstSpace < 0)
-    {
-        printCalUsage();
-        return;
-    }
-
-    String args = line.substring(firstSpace + 1);
-    args.trim();
-
-    // Deliberately not sscanf("%f") -- the default Arduino AVR toolchain
-    // doesn't link float support into scanf, so %f silently fails there.
-    int sp1 = args.indexOf(' ');
-    int sp2 = sp1 < 0 ? -1 : args.indexOf(' ', sp1 + 1);
-    if (sp1 < 0 || sp2 < 0)
-    {
-        printCalUsage();
-        return;
-    }
-
-    float phTarget = args.substring(0, sp1).toFloat();
-    float turbidityTarget = args.substring(sp1 + 1, sp2).toFloat();
-    float tdsTarget = args.substring(sp2 + 1).toFloat();
-
-    // Fresh averaged readings taken right now -- the probes should
-    // already be dipped in the reference sample when this command
-    // arrives, per CalibrationTrigger.tsx.
-    float phVoltageNow = getAverageADC(PH_PIN) * VREF / ADC_MAX;
-    float turbidityVoltageNow = getAverageADC(TURBIDITY_PIN) * VREF / ADC_MAX;
-    float tdsVoltageNow = getTdsCompensatedVoltage();
-
-    Calibration *targets[3] = {&phCal, &turbidityCal, &tdsCal};
-    float voltages[3] = {phVoltageNow, turbidityVoltageNow, tdsVoltageNow};
-    float values[3] = {phTarget, turbidityTarget, tdsTarget};
-
-    for (int i = 0; i < 3; i++)
-    {
-        if (isGood)
-        {
-            targets[i]->goodVoltage = voltages[i];
-            targets[i]->goodTarget = values[i];
-            targets[i]->goodSet = true;
-        }
-        else
-        {
-            targets[i]->criticalVoltage = voltages[i];
-            targets[i]->criticalTarget = values[i];
-            targets[i]->criticalSet = true;
-        }
-    }
-
-    saveCalibration();
-
-    Serial.print(isGood ? "CALGOOD" : "CALCRITICAL");
-    Serial.println(" saved.");
+  return PH_LOW + (adc - phCal.adcAtLow) *
+         (PH_HIGH - PH_LOW) / (phCal.adcAtHigh - phCal.adcAtLow);
 }
 
-// ========================================
+// =====================================================
+// TURBIDITY CALCULATION
+// =====================================================
+
+float calculateNTU(float voltage) {
+  float denom = turbCal.voltageClear - turbCal.voltageDirty;
+  if (denom == 0) denom = 0.0001;
+
+  float ntu = CLEAR_NTU +
+              (turbCal.voltageClear - voltage) *
+              (DIRTY_NTU - CLEAR_NTU) / denom;
+
+  if (ntu < 0) ntu = 0;
+  if (ntu > DIRTY_NTU) ntu = DIRTY_NTU;
+  return ntu;
+}
+
+// =====================================================
+// TDS CALCULATION (temperature compensated)
+// Gravity TDS factory formula
+// =====================================================
+
+float calculateTDS(float voltage, float tempC) {
+  // temperature compensation to 25C
+  float compCoeff = 1.0 + 0.02 * (tempC - 25.0);
+  float compVoltage = voltage / compCoeff;
+
+  // factory polynomial: converts voltage -> TDS (ppm)
+  float tds = (133.42 * compVoltage * compVoltage * compVoltage
+             - 255.86 * compVoltage * compVoltage
+             + 857.39 * compVoltage) * TDS_FACTOR;
+
+  if (tds < 0) tds = 0;
+  return tds;
+}
+
+// =====================================================
+// CALIBRATION COMMANDS
+// =====================================================
+
+void calibratePHpoint(const char* label, float* target) {
+  Serial.print("Analysing ");
+  Serial.print(label);
+  Serial.println(" buffer...");
+
+  AnalysisResult r = analysePin(PH_PIN, PH_VREF);
+
+  if (r.noiseMV > PH_MAX_NOISE_MV) {
+    Serial.print("FAILED: Unstable. Noise = ");
+    Serial.print(r.noiseMV, 1);
+    Serial.println(" mV");
+    return;
+  }
+
+  *target = r.filteredADC;
+  savePH();
+  Serial.print(label);
+  Serial.print(" saved. ADC = ");
+  Serial.println(r.filteredADC, 1);
+}
+
+void calibrateTurb(const char* label, float* target) {
+  Serial.print("Analysing ");
+  Serial.print(label);
+  Serial.println(" water...");
+
+  AnalysisResult r = analysePin(TURBIDITY_PIN, TURB_VREF);
+
+  if (r.noiseMV > TURB_MAX_NOISE_MV) {
+    Serial.print("WARNING: Noisy (");
+    Serial.print(r.noiseMV, 1);
+    Serial.println(" mV) but saving anyway.");
+  }
+
+  *target = r.voltage;
+  saveTurb();
+  Serial.print(label);
+  Serial.print(" saved. Voltage = ");
+  Serial.print(r.voltage, 4);
+  Serial.println(" V");
+}
+
+void handleCommand() {
+  if (!Serial.available()) return;
+
+  String command = Serial.readStringUntil('\n');
+  command.trim();
+  command.toUpperCase();
+
+  if (command == "CAL4") {
+    calibratePHpoint("pH 4.01", &phCal.adcAtLow);
+  }
+  else if (command == "CAL7") {
+    calibratePHpoint("pH 6.85", &phCal.adcAtMid);
+  }
+  else if (command == "CAL9") {
+    calibratePHpoint("pH 9.14", &phCal.adcAtHigh);
+  }
+  else if (command == "CALCLEAR") {
+    calibrateTurb("CLEAR", &turbCal.voltageClear);
+  }
+  else if (command == "CALDIRTY") {
+    calibrateTurb("DIRTY", &turbCal.voltageDirty);
+  }
+  else if (command == "SHOW") {
+    Serial.println("--- pH calibration ---");
+    Serial.print("ADC 4.01 = "); Serial.println(phCal.adcAtLow, 1);
+    Serial.print("ADC 6.85 = "); Serial.println(phCal.adcAtMid, 1);
+    Serial.print("ADC 9.14 = "); Serial.println(phCal.adcAtHigh, 1);
+    Serial.print("pH calibrated? "); Serial.println(phCalibrated() ? "YES" : "NO");
+    Serial.println("--- Turbidity calibration ---");
+    Serial.print("Clear V = "); Serial.println(turbCal.voltageClear, 4);
+    Serial.print("Dirty V = "); Serial.println(turbCal.voltageDirty, 4);
+    Serial.print("Turb calibrated? "); Serial.println(turbCalibrated() ? "YES" : "NO");
+  }
+  else if (command == "RESET") {
+    resetPH();
+    resetTurb();
+    Serial.println("ALL calibration deleted.");
+  }
+}
+
+// =====================================================
 // SETUP
-// ========================================
-void setup()
-{
-    Serial.begin(9600);
-    temperatureSensor.begin();
-    loadCalibration();
+// =====================================================
 
-    Serial.println("================================");
-    Serial.println(" WATER QUALITY SENSOR TEST");
-    Serial.println("================================");
-    printCalHelp();
+void setup() {
+  Serial.begin(9600);
+  Serial.setTimeout(200);
+
+  pinMode(PH_PIN, INPUT);
+  pinMode(TURBIDITY_PIN, INPUT);
+  pinMode(TDS_PIN, INPUT);
+
+  tempSensor.begin();
+  loadCalibration();
+
+  Serial.println("=================================");
+  Serial.println("WATER QUALITY MONITOR READY");
+  Serial.println("pH->A1 Turb->A0 TDS->A2 Temp->D2");
+  Serial.println("=================================");
+  Serial.println("pH:   CAL4 / CAL7 / CAL9");
+  Serial.println("Turb: CALCLEAR / CALDIRTY");
+  Serial.println("Gen:  SHOW / RESET");
+  Serial.println("=================================");
+
+  if (!phCalibrated())
+    Serial.println("[!] pH not calibrated");
+  if (!turbCalibrated())
+    Serial.println("[!] Turbidity not calibrated");
 }
 
-// ========================================
-// LOOP
-// ========================================
-void loop()
-{
-    handleSerialCommands();
+// =====================================================
+// MAIN LOOP
+// =====================================================
 
-    // ------------------------------------
-    // TEMPERATURE
-    // ------------------------------------
-    temperatureSensor.requestTemperatures();
-    float temperatureC = temperatureSensor.getTempCByIndex(0);
+void loop() {
+  handleCommand();
 
-    bool temperatureConnected =
-        (temperatureC != DEVICE_DISCONNECTED_C);
+  Serial.println("---------------------------------");
 
-    currentTemperatureC = temperatureC;
-    currentTemperatureConnected = temperatureConnected;
+  // ---------- TEMPERATURE ----------
+  float tempC = readTemperature();
+  bool tempOK = (tempC > -100.0);
 
-    // ------------------------------------
-    // pH SENSOR
-    // ------------------------------------
-    float phRaw = getAverageADC(PH_PIN);
-    float phVoltage = phRaw * VREF / ADC_MAX;
+  if (tempOK) {
+    lastTempC = tempC;   // save for TDS correction
+    Serial.print("Temp: ");
+    Serial.print(tempC, 1);
+    Serial.println(" C");
+  } else {
+    Serial.println("Temp: ERROR (check wiring & 4.7k resistor)");
+  }
 
-    float pH;
-    if (isCalibrated(phCal))
-    {
-        pH = applyCalibration(phCal, phVoltage);
+  // ---------- pH ----------
+  if (phCalibrated()) {
+    AnalysisResult phR = analysePin(PH_PIN, PH_VREF);
+
+    if (phR.noiseMV > PH_MAX_NOISE_MV) {
+      Serial.println("pH: ERROR (unstable signal)");
+    } else {
+      float ph = calculatePH(phR.filteredADC);
+      if (ph < 0.0 || ph > 14.0) {
+        Serial.println("pH: ERROR (invalid calibration)");
+      } else {
+        Serial.print("pH: ");
+        Serial.println(ph, 2);
+      }
     }
-    else
-    {
-        // Uncalibrated estimate only -- send CALGOOD/CALCRITICAL (see
-        // CALHELP) for accurate readings from this specific probe.
-        pH = 7.0 + ((2.5 - phVoltage) / 0.18);
-    }
+  } else {
+    Serial.println("pH: not calibrated");
+  }
 
-    // Keep inside normal pH scale regardless of calibration state
-    pH = constrain(pH, 0.0, 14.0);
-
-    // ------------------------------------
-    // TURBIDITY SENSOR
-    // ------------------------------------
-    float turbidityRaw = getAverageADC(TURBIDITY_PIN);
-    float turbidityVoltage =
-        turbidityRaw * VREF / ADC_MAX;
-
-    float turbidityNTU;
-    if (isCalibrated(turbidityCal))
-    {
-        turbidityNTU = applyCalibration(turbidityCal, turbidityVoltage);
-        if (turbidityNTU < 0) turbidityNTU = 0;
-    }
-    else
-    {
-        // Uncalibrated fallback: DFRobot's published characteristic
-        // curve for the Gravity analog turbidity sensor, taken from the
-        // manufacturer's own example code. It's fit to their reference
-        // circuit, not necessarily this one, so treat it as a rough
-        // estimate only until CALGOOD/CALCRITICAL has been run. Only
-        // valid from ~2.5V up to clear-water voltage; below 2.5V the
-        // sensor's optics are essentially fully blocked, so it's
-        // reported as the top of its usable range instead of
-        // extrapolating a curve that was never fit down there.
-        if (turbidityVoltage < 2.5)
-        {
-            turbidityNTU = 3000.0;
-        }
-        else
-        {
-            turbidityNTU = -1120.4 * turbidityVoltage * turbidityVoltage
-                          + 5742.3 * turbidityVoltage
-                          - 4352.9;
-        }
-
-        turbidityNTU = constrain(turbidityNTU, 0.0, 3000.0);
-    }
-
-    // Hard output clamp: this rig's expected operating range is 0-1 NTU,
-    // so anything the formula/calibration produces outside that band is
-    // reported at the nearest bound rather than passed through as-is.
-    // NOTE: this means turbidity alone can never cross the "critical"
-    // threshold (500 NTU) used by the dashboard's Normal/Attention badge
-    // and CALIBRATION_TARGETS in frontend/lib/constants.ts -- a real
-    // turbid reading above 1 NTU is indistinguishable from one at 1.0
-    // once it reaches here.
-    turbidityNTU = constrain(turbidityNTU, 0.0, 1.0);
-
-    // ------------------------------------
-    // TDS SENSOR
-    // ------------------------------------
-    float tdsRaw = getAverageADC(TDS_PIN);
-    float tdsVoltage = tdsRaw * VREF / ADC_MAX;
-    float compensationVoltage = getTdsCompensatedVoltage();
-
-    float tdsValue;
-    if (isCalibrated(tdsCal))
-    {
-        tdsValue = applyCalibration(tdsCal, compensationVoltage);
-        if (tdsValue < 0) tdsValue = 0;
-    }
-    else
-    {
-        tdsValue =
-            (133.42 * compensationVoltage *
-             compensationVoltage *
-             compensationVoltage
-            - 255.86 * compensationVoltage *
-             compensationVoltage
-            + 857.39 * compensationVoltage)
-            * 0.5;
-
-        // The cubic can dip negative at low voltages -- there's no such
-        // thing as negative dissolved solids, so floor it rather than
-        // sending a nonsense negative ppm to the backend/ML model.
-        if (tdsValue < 0) tdsValue = 0;
-    }
-
-    // ------------------------------------
-    // DISPLAY RESULTS
-    // ------------------------------------
-    Serial.println();
-    Serial.println("================================");
-    Serial.println("     WATER QUALITY READINGS");
-    Serial.println("================================");
-
-    Serial.print("pH: ");
-    Serial.print(pH, 2);
-    Serial.println(isCalibrated(phCal) ? " (CALIBRATED)" : " (UNCALIBRATED ESTIMATE)");
-
-    Serial.print("pH Raw: ");
-    Serial.println(phRaw, 2);
-
-    Serial.print("pH Voltage: ");
-    Serial.print(phVoltage, 3);
-    Serial.println(" V");
-
-    Serial.println("--------------------------------");
-
-    Serial.print("Temperature: ");
-
-    if (temperatureConnected)
-    {
-        Serial.print(temperatureC, 2);
-        Serial.println(" C");
-    }
-    else
-    {
-        Serial.println("NOT CONNECTED");
-    }
-
-    Serial.println("--------------------------------");
+  // ---------- TURBIDITY ----------
+  if (turbCalibrated()) {
+    AnalysisResult tR = analysePin(TURBIDITY_PIN, TURB_VREF);
+    float ntu = calculateNTU(tR.voltage);
 
     Serial.print("Turbidity: ");
-    Serial.print(turbidityNTU, 2);
-    Serial.println(isCalibrated(turbidityCal) ? " NTU (CALIBRATED)" : " NTU (UNCALIBRATED ESTIMATE)");
+    Serial.print(ntu, 1);
+    Serial.print(" NTU  ->  ");
 
-    Serial.print("Turbidity Raw: ");
-    Serial.println(turbidityRaw, 2);
-
-    Serial.print("Turbidity Voltage: ");
-    Serial.print(turbidityVoltage, 3);
-    Serial.println(" V");
-
-    Serial.println("--------------------------------");
-
-    Serial.print("TDS: ");
-    Serial.print(tdsValue, 2);
-    Serial.println(isCalibrated(tdsCal) ? " ppm (CALIBRATED)" : " ppm (UNCALIBRATED ESTIMATE)");
-
-    Serial.print("TDS Raw: ");
-    Serial.println(tdsRaw, 2);
-
-    Serial.print("TDS Voltage: ");
-    Serial.print(tdsVoltage, 3);
-    Serial.println(" V");
-
-    Serial.println("--------------------------------");
-
-    // DATA FORMAT FOR PYTHON / ML MODEL
-    Serial.print("DATA:");
-
-    Serial.print(pH, 2);
-    Serial.print(",");
-
-    if (temperatureConnected)
-        Serial.print(temperatureC, 2);
-    else
-        Serial.print("0");
-
-    Serial.print(",");
-    Serial.print(turbidityNTU, 2);
-    Serial.print(",");
-    Serial.println(tdsValue, 2);
-
-    // RAW ADC DIAGNOSTIC FOR THE DASHBOARD (backend/serial_reader.py)
-    Serial.print("RAW:");
-    Serial.print((int)round(phRaw));
-    Serial.print(",");
-    Serial.print((int)round(turbidityRaw));
-    Serial.print(",");
-    Serial.println((int)round(tdsRaw));
-
-    Serial.println("================================");
-
-    // Poll for CAL commands during the wait instead of blocking for a
-    // flat 5s, so a calibration click from the dashboard isn't delayed.
-    unsigned long delayStart = millis();
-    while (millis() - delayStart < 5000)
-    {
-        handleSerialCommands();
-        delay(50);
+    if (ntu <= 5.0) {
+      Serial.println("GOOD (safe/clear)");
+    } else if (ntu <= 50.0) {
+      Serial.println("AVERAGE (slightly cloudy)");
+    } else {
+      Serial.println("BAD (very cloudy/dirty)");
     }
+  } else {
+    Serial.println("Turbidity: not calibrated");
+  }
+
+  // ---------- TDS ----------
+  AnalysisResult tdsR = analysePin(TDS_PIN, TDS_VREF);
+  float tds = calculateTDS(tdsR.voltage, lastTempC);
+
+  Serial.print("TDS: ");
+  Serial.print(tds, 0);
+  Serial.print(" ppm  ->  ");
+
+  // Drinking water quality based on TDS (ppm)
+  if (tds <= 300.0) {
+    Serial.println("GOOD (excellent/good)");
+  } else if (tds <= 600.0) {
+    Serial.println("AVERAGE (fair)");
+  } else if (tds <= 900.0) {
+    Serial.println("POOR");
+  } else {
+    Serial.println("BAD (unacceptable)");
+  }
+
+  delay(1500);
 }

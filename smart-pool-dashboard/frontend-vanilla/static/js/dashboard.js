@@ -132,6 +132,8 @@ function updateDashboard(s) {
   setText('tds', fmt(s.water_quality.tds));
   if (s.water_quality.simulated) {
     setPill('sensorConn', 'SIMULATED', 'warn');
+  } else if (s.water_quality.warming_up) {
+    setPill('sensorConn', 'WARMING UP', 'warn');
   } else if (s.water_quality.sensor_connected) {
     setPill('sensorConn', 'CONNECTED', 'safe');
   } else {

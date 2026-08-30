@@ -74,6 +74,7 @@ class WaterQualityMonitor:
                     "turbidity": None, "tds": None, "status": "UNKNOWN",
                     "sensor_connected": self.reader.connected,
                     "simulated": self.reader.simulated,
+                    "warming_up": self.reader.warming_up,
                     "model_status": self.predictor.model_status,
                 })
                 self._tick_test(None)
@@ -84,6 +85,7 @@ class WaterQualityMonitor:
             state.update_module("water_quality", {
                 **reading, "status": status, "sensor_connected": True,
                 "simulated": self.reader.simulated,
+                "warming_up": False,
                 "model_status": self.predictor.model_status,
             })
             if self.session_tracker:

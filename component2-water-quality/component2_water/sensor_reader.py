@@ -2,12 +2,32 @@
 Component 2 — sensor input layer.
 
 Real-serial parsing matches the calibrated Arduino sketch in
-arduino/pool_water_quality_sensors/pool_water_quality_sensors.ino:
-  - reads a line, skips blanks and anything that isn't a "DATA:" line
-    (banners, CALHELP text, "CALGOOD saved.", the separate "RAW:" line, etc.)
-  - a "DATA:" line carries exactly 4 comma-separated values, in this order:
-    pH, Temperature, Turbidity, TDS
-  - skips malformed lines instead of crashing
+arduino/pool_water_quality_sensors/pool_water_quality_sensors.ino, which
+prints one labelled line per sensor per cycle (not a single CSV line):
+    ---------------------------------
+    Temp: 30.4 C
+    pH: 4.11
+    Turbidity: 0.0 NTU  ->  GOOD (safe/clear)
+    TDS: 5 ppm  ->  GOOD (excellent/good)
+read() accumulates lines (each "---" separator starts a fresh block) until
+one line for each of the 4 sensors has been seen, then returns a reading.
+The sketch always prints exactly one line per sensor per cycle even on
+error ("Temp: ERROR ...", "pH: not calibrated"), so "one line seen" and
+"a valid number was on it" are tracked separately: if a sensor's line
+didn't parse as a number, ONLY that sensor's value is replaced with
+SAFE_DEFAULTS[sensor] for this reading — the other 3 sensors' real
+readings are still returned normally, not withheld. Which fields (if any)
+were substituted this way is reported back in "fallback_fields", so a
+transient glitch on one sensor never blanks the whole card and is never
+silently presented as a live reading. A full Arduino cycle here takes
+several seconds (each sensor averages 100 samples), so read() blocks up
+to READ_BLOCK_TIMEOUT_S waiting for a complete cycle, returning None only
+if no cycle's worth of lines arrives at all in that time (real
+disconnect) — not merely because one sensor keeps erroring.
+
+Freshly-powered sensors (pH especially) drift for the first ~20s after
+the serial connection opens, so read() discards readings collected
+before WARMUP_SECONDS has elapsed since connecting — see `warming_up`.
 
 No chlorine sensor is wired on the physical rig, but the trained model
 (component2-water-quality/models/) expects 5 features including Chlorine
@@ -34,8 +54,36 @@ Added around the original parsing (architecture only):
 
 import glob
 import random
+import re
+import time
 
 CHLORINE_PLACEHOLDER_PPM = 1.8  # mid-range "ideal" value -- see module docstring
+WARMUP_SECONDS = 20        # discard readings until this long after connecting
+READ_BLOCK_TIMEOUT_S = 10  # give one full Arduino cycle (~5-6s) headroom
+
+# Used ONLY to fill in a single sensor whose line errored/wasn't
+# calibrated this cycle ("Temp: ERROR ...", "pH: not calibrated") — never
+# as a substitute for a whole reading. Each is a safe mid-range pool
+# value, chosen so a one-sensor glitch can't itself push the model's
+# classification toward WARNING/CRITICAL.
+SAFE_DEFAULTS = {
+    "temperature": 27.0,
+    "ph": 7.4,
+    "turbidity": 0.5,
+    "tds": 350.0,
+}
+
+# One (prefix, regex) pair per sensor line the sketch prints. The prefix
+# alone identifies "a line for this sensor was seen" (even on error); the
+# regex additionally captures the leading number when there is one, and
+# ignores whatever unit/verdict text follows ("Temp: 30.4 C", "TDS: 5 ppm
+# -> GOOD (excellent/good)", ...).
+_LINE_PATTERNS = {
+    "temperature": ("Temp:", re.compile(r"^Temp:\s*(-?\d+\.?\d*)")),
+    "ph": ("pH:", re.compile(r"^pH:\s*(-?\d+\.?\d*)")),
+    "turbidity": ("Turbidity:", re.compile(r"^Turbidity:\s*(-?\d+\.?\d*)")),
+    "tds": ("TDS:", re.compile(r"^TDS:\s*(-?\d+\.?\d*)")),
+}
 
 
 def autodetect_port():
@@ -80,10 +128,21 @@ class SensorReader:
         self.baud_rate = baud_rate
         self.serial = None
         self.connected = False
+        self.connected_at = None
         # Simulator baseline: plausible pool values (only used if
         # simulate is explicitly requested — never as an auto fallback)
         self._sim = {"ph": 7.4, "temperature": 27.5, "chlorine": 1.8,
                      "turbidity": 1.0, "tds": 380.0}
+
+    @property
+    def warming_up(self):
+        """True for WARMUP_SECONDS after a real connection is made —
+        freshly-powered sensors (pH especially) drift during this
+        window, so read() discards readings until it passes. Always
+        False in simulate mode (nothing to warm up)."""
+        if self.simulated or not self.connected or self.connected_at is None:
+            return False
+        return (time.time() - self.connected_at) < WARMUP_SECONDS
 
     def open(self):
         """Initial connection attempt. See try_connect() for retrying
@@ -107,46 +166,56 @@ class SensorReader:
     def _connect_to(self, source):
         if not source:
             self.connected = False
+            self.connected_at = None
             return False
         try:
             import serial
-            import time
 
             self.source = source
             self.serial = serial.Serial(source, self.baud_rate, timeout=2)
             time.sleep(3)
             self.serial.reset_input_buffer()  # preserved from original
             self.connected = True
+            self.connected_at = time.time()
             return True
         except Exception:  # noqa: BLE001
             self.connected = False
+            self.connected_at = None
             return False
 
     def read(self):
-        """Return dict of 5 readings, or None if unavailable."""
+        """Return dict of 5 readings, or None if unavailable (not yet a
+        full block, still warming up, or disconnected). See module
+        docstring for the line format being parsed."""
         if self.simulated:
             return self._simulate()
         if not self.serial or not self.connected:
             return None
         try:
-            line = self.serial.readline().decode(errors="ignore").strip()
-            if not line.startswith("DATA:"):
-                return None  # banner / CALHELP / RAW: / calibration ack line
+            block = {}
+            deadline = time.time() + READ_BLOCK_TIMEOUT_S
+            while time.time() < deadline:
+                line = self.serial.readline().decode(errors="ignore").strip()
+                if not line:
+                    continue
+                if line.startswith("---"):
+                    block = {}  # separator marks the start of a fresh cycle
+                    continue
+                for key, pattern in _LINE_PATTERNS.items():
+                    match = pattern.match(line)
+                    if match:
+                        block[key] = float(match.group(1))
+                        break
 
-            values = line[len("DATA:"):].split(",")
-            if len(values) != 4:
-                return None
-
-            ph, temperature, turbidity, tds = (float(v) for v in values)
-            return {
-                "ph": ph,
-                "temperature": temperature,
-                "chlorine": CHLORINE_PLACEHOLDER_PPM,
-                "turbidity": turbidity,
-                "tds": tds,
-            }
+                if len(block) == len(_LINE_PATTERNS):
+                    if self.warming_up:
+                        return None  # sensors still settling — discard
+                    block["chlorine"] = CHLORINE_PLACEHOLDER_PPM
+                    return block
+            return None  # no complete, valid block within the timeout
         except (ValueError, OSError):
             self.connected = False
+            self.connected_at = None
             return None
 
     def _simulate(self):
