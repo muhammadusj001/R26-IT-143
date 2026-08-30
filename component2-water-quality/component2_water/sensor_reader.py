@@ -17,36 +17,103 @@ the model is retrained on 4 features. This is a placeholder, not a fix.
 
 Added around the original parsing (architecture only):
   - the serial port comes from settings instead of a hardcoded path
-  - a simulator mode generates realistic values (including chlorine) when
-    no Arduino is connected, so the dashboard card always works
+  - source="auto" (the default) probes for a plugged-in Arduino
+    (/dev/cu.usbmodem*, /dev/cu.usbserial*, /dev/ttyACM*, /dev/ttyUSB*,
+    COM ports) and uses it if found. If nothing is found, the reader
+    stays disconnected — it does NOT fall back to fake data. Callers see
+    connected=False and read() returns None until a real device shows
+    up; try_connect() can be called again later (e.g. on a timer) to
+    pick up a device plugged in after startup, with no restart needed.
+  - simulate mode (source="simulate") generates realistic values
+    (including chlorine) but must be requested explicitly — it is never
+    an automatic fallback, so a "connected" reading is always real
+    hardware. self.simulated tells callers which mode is active so they
+    never display simulated data as if it were a live sensor reading.
   - sensor failure is reported instead of raising
 """
 
+import glob
 import random
 
 CHLORINE_PLACEHOLDER_PPM = 1.8  # mid-range "ideal" value -- see module docstring
 
 
+def autodetect_port():
+    """Return the path of a plugged-in Arduino-like USB-serial device,
+    or None if nothing is found. Checked in a fixed order so the result
+    is stable across calls when multiple devices are present.
+
+    macOS/Linux: matched by the device path pattern USB-serial adapters
+    register under (cu.usbmodem/cu.usbserial, ttyACM/ttyUSB) — these
+    patterns never match built-in virtual ports (Bluetooth, debug
+    console), so a match is a reliable signal of real USB hardware.
+
+    Windows: device paths (COM3, COM4, ...) carry no such signal, so
+    instead this asks pyserial for each port's description/manufacturer
+    and only accepts one that looks like a USB-serial adapter — an
+    unfiltered port list would also include non-USB COM ports.
+    """
+    for pattern in ("/dev/cu.usbmodem*", "/dev/cu.usbserial*",  # macOS
+                    "/dev/ttyACM*", "/dev/ttyUSB*"):             # Linux
+        matches = sorted(glob.glob(pattern))
+        if matches:
+            return matches[0]
+    try:
+        from serial.tools import list_ports
+
+        candidates = sorted(
+            p.device for p in list_ports.comports()
+            if p.device.upper().startswith("COM")
+            and (p.vid is not None or "usb" in (p.description or "").lower())
+        )
+        return candidates[0] if candidates else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class SensorReader:
-    def __init__(self, source="simulate", baud_rate=9600):
-        self.source = source
+    def __init__(self, source="auto", baud_rate=9600):
+        self.requested_source = source
+        self.auto = str(source).lower() == "auto"
+        self.simulated = str(source).lower() == "simulate"
+        self.source = "simulate" if self.simulated else (None if self.auto else source)
         self.baud_rate = baud_rate
         self.serial = None
         self.connected = False
-        self.simulated = str(source).lower() == "simulate"
-        # Simulator baseline: plausible pool values
+        # Simulator baseline: plausible pool values (only used if
+        # simulate is explicitly requested — never as an auto fallback)
         self._sim = {"ph": 7.4, "temperature": 27.5, "chlorine": 1.8,
                      "turbidity": 1.0, "tds": 380.0}
 
     def open(self):
+        """Initial connection attempt. See try_connect() for retrying
+        later without tearing down/recreating the reader."""
         if self.simulated:
             self.connected = True
             return True
+        if self.auto:
+            self.source = autodetect_port()
+        return self._connect_to(self.source)
+
+    def try_connect(self):
+        """Call periodically while disconnected: re-probes for a
+        newly-plugged-in device (auto mode) or retries the configured
+        port. No-op if already connected or running in simulate mode."""
+        if self.simulated or self.connected:
+            return self.connected
+        source = autodetect_port() if self.auto else self.source
+        return self._connect_to(source)
+
+    def _connect_to(self, source):
+        if not source:
+            self.connected = False
+            return False
         try:
             import serial
             import time
 
-            self.serial = serial.Serial(self.source, self.baud_rate, timeout=2)
+            self.source = source
+            self.serial = serial.Serial(source, self.baud_rate, timeout=2)
             time.sleep(3)
             self.serial.reset_input_buffer()  # preserved from original
             self.connected = True
@@ -59,7 +126,7 @@ class SensorReader:
         """Return dict of 5 readings, or None if unavailable."""
         if self.simulated:
             return self._simulate()
-        if not self.serial:
+        if not self.serial or not self.connected:
             return None
         try:
             line = self.serial.readline().decode(errors="ignore").strip()

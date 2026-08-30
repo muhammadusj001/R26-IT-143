@@ -64,6 +64,7 @@ class SystemState:
                 "tds": None,
                 "status": "UNKNOWN",
                 "sensor_connected": False,
+                "simulated": False,
                 "model_status": "not_loaded",
                 "test": {
                     "status": "idle",

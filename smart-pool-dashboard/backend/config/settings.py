@@ -43,9 +43,13 @@ WATER_MODEL_DIR = Path(
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "simulate")
 
 # ── Water quality sensor source ──────────────────────────────
-# Serial port of the Arduino (e.g. "COM3", "/dev/cu.usbmodem21401")
-# or "simulate" to generate realistic sensor values without hardware.
-SENSOR_SOURCE = os.getenv("SENSOR_SOURCE", "simulate")
+# Serial port of the Arduino (e.g. "COM3", "/dev/cu.usbmodem21401"),
+# "auto" (default) to probe for a plugged-in Arduino with zero config —
+# if none is found, the card stays "OFFLINE" with no data rather than
+# inventing readings, and keeps probing so plugging it in later is
+# picked up without a restart — or "simulate" to explicitly force
+# simulated demo data (never automatic; must be requested).
+SENSOR_SOURCE = os.getenv("SENSOR_SOURCE", "auto")
 SENSOR_BAUD_RATE = int(os.getenv("SENSOR_BAUD_RATE", "9600"))
 SENSOR_INTERVAL_SECONDS = float(os.getenv("SENSOR_INTERVAL_SECONDS", "2.0"))
 

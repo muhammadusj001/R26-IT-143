@@ -130,7 +130,13 @@ function updateDashboard(s) {
   setText('chlorine', fmt(s.water_quality.chlorine));
   setText('turbidity', fmt(s.water_quality.turbidity));
   setText('tds', fmt(s.water_quality.tds));
-  setText('sensorConn', s.water_quality.sensor_connected ? 'connected' : 'offline');
+  if (s.water_quality.simulated) {
+    setPill('sensorConn', 'SIMULATED', 'warn');
+  } else if (s.water_quality.sensor_connected) {
+    setPill('sensorConn', 'CONNECTED', 'safe');
+  } else {
+    setPill('sensorConn', 'OFFLINE', 'danger');
+  }
   setText('waterModel', s.water_quality.model_status);
   const w = s.water_quality.status;
   setPill('waterStatus', w, w === 'SAFE' ? 'safe' : (w === 'CRITICAL' ? 'danger' : 'warn'));

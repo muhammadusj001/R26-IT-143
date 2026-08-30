@@ -59,10 +59,21 @@ class WaterQualityMonitor:
 
     def _loop(self):
         while self._running:
+            if not self.reader.connected and not self.reader.simulated:
+                # Real-hardware mode with nothing connected yet (or a
+                # dropped connection) — keep probing so plugging the
+                # Arduino in mid-session picks it up with no restart.
+                self.reader.try_connect()
+
             reading = self.reader.read()
             if reading is None:
                 state.update_module("water_quality", {
+                    # No real reading available — never show stale/last
+                    # values as if they were current.
+                    "ph": None, "temperature": None, "chlorine": None,
+                    "turbidity": None, "tds": None, "status": "UNKNOWN",
                     "sensor_connected": self.reader.connected,
+                    "simulated": self.reader.simulated,
                     "model_status": self.predictor.model_status,
                 })
                 self._tick_test(None)
@@ -72,6 +83,7 @@ class WaterQualityMonitor:
             status = self.predictor.predict(reading)
             state.update_module("water_quality", {
                 **reading, "status": status, "sensor_connected": True,
+                "simulated": self.reader.simulated,
                 "model_status": self.predictor.model_status,
             })
             if self.session_tracker:
