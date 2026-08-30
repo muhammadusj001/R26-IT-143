@@ -64,7 +64,18 @@ class SystemState:
                 "tds": None,
                 "status": "UNKNOWN",
                 "sensor_connected": False,
+                "simulated": False,
+                "warming_up": False,
+                "fallback_fields": [],
                 "model_status": "not_loaded",
+                "test": {
+                    "status": "idle",
+                    "elapsed": 0,
+                    "duration": 60,
+                    "warmup": 20,
+                    "samples_collected": 0,
+                    "result": None,
+                },
             },
             "decision": {
                 "overall_risk": "NORMAL",

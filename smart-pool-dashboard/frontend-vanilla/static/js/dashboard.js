@@ -19,6 +19,100 @@ function setConn(ok) {
 function startDetection() { socket.emit('start_detection'); }
 function stopDetection()  { socket.emit('stop_detection'); }
 
+// ── Water quality test (popup) ─────────────────────────────
+// The backend (core/water_test.py) discards the first `warmup` seconds
+// (sensors settling) then medians samples up to `duration` seconds into
+// one result with a SAFE/WARNING/CRITICAL classification and
+// human-readable reasons. This just polls that progress via the normal
+// state_update stream and renders it in a popup; the countdown text ticks
+// locally every 500ms for smoothness between server pushes, but every
+// number that actually matters (samples collected, status, result) comes
+// straight from the server, never estimated client-side.
+let testModalOpen = false;
+let testClientStartMs = null;
+let testTickHandle = null;
+let testLatest = null; // last known server "test" object
+
+function startWaterTest() {
+  socket.emit('start_water_test');
+  testModalOpen = true;
+  testClientStartMs = Date.now();
+  testLatest = { status: 'running', elapsed: 0, duration: 60, warmup: 20, samples_collected: 0, result: null };
+  document.getElementById('testModalOverlay').hidden = false;
+  renderTestModal();
+  if (testTickHandle) clearInterval(testTickHandle);
+  testTickHandle = setInterval(renderTestModal, 500);
+}
+
+function closeTestModal() {
+  testModalOpen = false;
+  document.getElementById('testModalOverlay').hidden = true;
+  if (testTickHandle) { clearInterval(testTickHandle); testTickHandle = null; }
+}
+
+// Called from updateDashboard() on every state_update — keeps testLatest
+// current even while the popup is closed, so reopening (or a fresh
+// connect) shows the real current/last state rather than nothing.
+function onTestState(test) {
+  if (!test) return;
+  testLatest = test;
+  if (testModalOpen) renderTestModal();
+}
+
+function renderTestModal() {
+  if (!testLatest) return;
+  const body = document.getElementById('testModalBody');
+
+  if (testLatest.status === 'complete') {
+    body.innerHTML = renderTestResult(testLatest.result);
+    return;
+  }
+
+  const duration = testLatest.duration;
+  const warmup = testLatest.warmup;
+  // Smooth local countdown between server pushes, floored by the
+  // server's own last-known elapsed so it never runs backwards.
+  const localElapsed = testClientStartMs ? (Date.now() - testClientStartMs) / 1000 : testLatest.elapsed;
+  const elapsed = Math.min(Math.max(localElapsed, testLatest.elapsed), duration);
+  const inWarmup = elapsed < warmup;
+  const remaining = Math.max(0, Math.ceil(duration - elapsed));
+  const pct = Math.min(100, (elapsed / duration) * 100);
+
+  body.innerHTML = `
+    <div class="test-phase">${inWarmup ? 'Warming up sensors…' : 'Collecting readings…'}</div>
+    <div class="test-progress-bar"><div class="test-progress-fill" style="width:${pct}%"></div></div>
+    <div class="test-meta">
+      <span>${Math.floor(elapsed)}s / ${duration}s</span>
+      <span>${remaining}s remaining</span>
+    </div>
+    <div class="test-samples">${inWarmup
+      ? 'Readings will start once warm-up finishes'
+      : testLatest.samples_collected + ' sample(s) collected so far'}</div>
+  `;
+}
+
+function renderTestResult(result) {
+  if (!result) return '<div class="test-phase">No result.</div>';
+  const cls = result.status === 'SAFE' ? 'safe' : (result.status === 'CRITICAL' ? 'danger' : 'warn');
+  const labels = { ph: 'pH', temperature: 'Temp °C', chlorine: 'Cl ppm', turbidity: 'NTU', tds: 'TDS' };
+  const rows = Object.keys(labels).map((k) => `
+    <div class="stat"><span class="stat-val">${fmt(result[k])}</span><span class="stat-label">${labels[k]}</span></div>
+  `).join('');
+  const reasons = (result.reasons && result.reasons.length)
+    ? '<ul class="test-reasons">' + result.reasons.map((r) => `<li>${r}</li>`).join('') + '</ul>'
+    : '<p class="test-reasons-none">No issues — every parameter is within range.</p>';
+
+  return `
+    <div class="test-result-status">
+      <span class="pill ${cls}">${result.status}</span>
+      <span class="test-sample-count">${result.sample_count} sample(s) used</span>
+    </div>
+    <div class="stat-row wq test-result-grid">${rows}</div>
+    ${reasons}
+    <button class="btn btn-start" onclick="startWaterTest()">Run Again</button>
+  `;
+}
+
 // Client-side session-stats tracking (peak swimmers / alerts this
 // session). The backend already tracks a fuller session summary for
 // the PDF report (see /api/session/summary), but that isn't part of
@@ -125,15 +219,25 @@ function updateDashboard(s) {
   }
 
   // Water quality
-  setText('ph', fmt(s.water_quality.ph));
-  setText('temperature', fmt(s.water_quality.temperature));
-  setText('chlorine', fmt(s.water_quality.chlorine));
-  setText('turbidity', fmt(s.water_quality.turbidity));
-  setText('tds', fmt(s.water_quality.tds));
-  setText('sensorConn', s.water_quality.sensor_connected ? 'connected' : 'offline');
+  const fallbackFields = new Set(s.water_quality.fallback_fields || []);
+  setSensorVal('ph', 'ph', s.water_quality.ph, fallbackFields);
+  setSensorVal('temperature', 'temperature', s.water_quality.temperature, fallbackFields);
+  setText('chlorine', fmt(s.water_quality.chlorine)); // always a placeholder — no chlorine sensor at all, unrelated to per-cycle fallback
+  setSensorVal('turbidity', 'turbidity', s.water_quality.turbidity, fallbackFields);
+  setSensorVal('tds', 'tds', s.water_quality.tds, fallbackFields);
+  if (s.water_quality.simulated) {
+    setPill('sensorConn', 'SIMULATED', 'warn');
+  } else if (s.water_quality.warming_up) {
+    setPill('sensorConn', 'WARMING UP', 'warn');
+  } else if (s.water_quality.sensor_connected) {
+    setPill('sensorConn', 'CONNECTED', 'safe');
+  } else {
+    setPill('sensorConn', 'OFFLINE', 'danger');
+  }
   setText('waterModel', s.water_quality.model_status);
   const w = s.water_quality.status;
   setPill('waterStatus', w, w === 'SAFE' ? 'safe' : (w === 'CRITICAL' ? 'danger' : 'warn'));
+  onTestState(s.water_quality.test);
 
   // Decision engine
   const risk = document.getElementById('overallRisk');
@@ -206,6 +310,20 @@ function generateReport() {
 }
 
 // ── Helpers ─────────────────────────────────────────────────
+// Renders one water-quality stat, marking it visibly (amber + tooltip)
+// when the backend substituted a safe default because that one sensor's
+// line errored this cycle — the value is real, this is a fallback for a
+// single field, never the whole reading, but it must never be shown as
+// if it were a live measurement.
+function setSensorVal(id, key, value, fallbackFields) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = fmt(value);
+  const isFallback = fallbackFields.has(key);
+  el.classList.toggle('fallback', isFallback);
+  el.title = isFallback ? 'Safe default — this sensor errored this cycle' : '';
+}
+
 function setText(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
 function setPill(id, text, cls) {
   const e = document.getElementById(id);

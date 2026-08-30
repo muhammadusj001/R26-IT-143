@@ -5,13 +5,14 @@ from pathlib import Path
 from component2_water.sensor_reader import SensorReader
 from component2_water.predictor import WaterQualityPredictor
 
-SOURCE = "simulate"  # or "COM3" / "/dev/cu.usbmodem21401"
+SOURCE = "auto"  # probes for a plugged-in Arduino, falls back to simulate;
+                 # or force one explicitly: "COM3" / "/dev/cu.usbmodem21401" / "simulate"
 
 reader = SensorReader(SOURCE)
 predictor = WaterQualityPredictor(Path(__file__).parent / "models")
 reader.open()
 predictor.load()
-print(f"Sensor: {'simulated' if reader.simulated else SOURCE} | Model: {predictor.model_status}")
+print(f"Sensor: {'simulated (no Arduino found)' if reader.simulated else reader.source} | Model: {predictor.model_status}")
 while True:
     reading = reader.read()
     if reading:

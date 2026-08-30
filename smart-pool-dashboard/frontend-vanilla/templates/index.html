@@ -132,7 +132,11 @@
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.5-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7Z"/></svg>
         Water Quality</h2>
-        <span class="model-status" id="waterModel">–</span></div>
+        <div class="wq-header-actions">
+          <span class="model-status" id="waterModel">–</span>
+          <button class="btn btn-test" id="testBtn" onclick="startWaterTest()">Run Test</button>
+        </div>
+      </div>
       <div class="stat-row wq">
         <div class="stat"><span class="stat-val" id="ph">–</span><span class="stat-label">pH</span></div>
         <div class="stat"><span class="stat-val" id="temperature">–</span><span class="stat-label">Temp °C</span></div>
@@ -141,7 +145,7 @@
         <div class="stat"><span class="stat-val" id="tds">–</span><span class="stat-label">TDS</span></div>
       </div>
       <div class="recommendation"><span id="waterStatus" class="pill">UNKNOWN</span>
-        &nbsp;Sensor: <b id="sensorConn">–</b></div>
+        &nbsp;Sensor: <span id="sensorConn" class="pill">–</span></div>
     </div>
 
     <div class="card">
@@ -153,6 +157,16 @@
 
   </section>
 </main>
+
+<div class="modal-overlay" id="testModalOverlay" hidden onclick="if (event.target === this) closeTestModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Water Quality Test</h3>
+      <button class="modal-close" id="testModalClose" onclick="closeTestModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="testModalBody"></div>
+  </div>
+</div>
 
 <script src="/static/js/dashboard.js"></script>
 </body>
