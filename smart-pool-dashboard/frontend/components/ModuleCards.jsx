@@ -71,7 +71,7 @@ export function WaterCard({ wq, onStartTest }) {
       </div>
       <div className="recommendation">
         <Pill text={wq.status} tone={statusTone(wq.status)} />
-        {"  "}Sensor: <b>{wq.sensor_connected ? "connected" : "offline"}</b>
+        {"  "}Sensor: <b>{wq.simulated ? "simulated" : wq.sensor_connected ? "connected" : "offline"}</b>
       </div>
 
       <div className="wq-test">

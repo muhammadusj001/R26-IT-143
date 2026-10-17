@@ -72,7 +72,7 @@ class WaterQualityMonitor:
                     # values as if they were current.
                     "ph": None, "temperature": None, "chlorine": None,
                     "turbidity": None, "tds": None, "status": "UNKNOWN",
-                    "sensor_connected": self.reader.connected,
+                    "sensor_connected": self.reader.connected and not self.reader.simulated,
                     "simulated": self.reader.simulated,
                     "warming_up": self.reader.warming_up,
                     "fallback_fields": [],
@@ -84,7 +84,9 @@ class WaterQualityMonitor:
 
             status = self.predictor.predict(reading)
             state.update_module("water_quality", {
-                **reading, "status": status, "sensor_connected": True,
+                **reading,
+                "status": status,
+                "sensor_connected": self.reader.connected and not self.reader.simulated,
                 "simulated": self.reader.simulated,
                 "warming_up": False,
                 "model_status": self.predictor.model_status,
