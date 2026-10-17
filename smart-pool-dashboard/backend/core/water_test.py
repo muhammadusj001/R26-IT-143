@@ -62,7 +62,6 @@ class WaterQualityTest:
 
         if self.samples:
             median = {}
-            fallback_only = []
             for field in FIELDS:
                 if field in FALLBACK_ELIGIBLE_FIELDS:
                     # Only samples where THIS field was a genuine sensor
@@ -76,17 +75,9 @@ class WaterQualityTest:
                     genuine = [s[field] for s in self.samples]
                 values = genuine or [s[field] for s in self.samples]
                 median[field] = round(statistics.median(values), 2)
-                if field in FALLBACK_ELIGIBLE_FIELDS and not genuine:
-                    fallback_only.append(field)
 
             status = self.predictor.predict(median)
             reasons = explain_status(median, status)
-            if fallback_only:
-                reasons.append(
-                    f"{', '.join(fallback_only)}: this sensor never produced a "
-                    "valid reading during the test — its value above is a safe "
-                    "default, not a real measurement"
-                )
         else:
             # No samples landed inside the warmup..duration window -- sensor
             # was disconnected/unavailable for the whole test.
