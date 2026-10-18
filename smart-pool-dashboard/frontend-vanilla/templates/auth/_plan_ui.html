@@ -1,0 +1,34 @@
+{# Shared plan UI pieces. Import with: {% import "auth/_plan_ui.html" as ui with context %} #}
+
+{# (index.html writes its #planBadge out in full so system_check can find the id) #}
+{% macro plan_badge(plan_key) -%}
+<a href="{{ url_for('auth.account') if current_user else url_for('auth.pricing') }}"
+   class="pill plan-pill plan-{{ plan_key or 'none' }}"
+   title="Your plan">{{ (plans[plan_key].name if plan_key in plans else '–')|upper }}</a>
+{%- endmacro %}
+
+{% macro icon_check() -%}
+<svg class="feat-icon yes" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+{%- endmacro %}
+
+{% macro icon_cross() -%}
+<svg class="feat-icon no" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+{%- endmacro %}
+
+{% macro icon_lock(size=16) -%}
+<svg xmlns="http://www.w3.org/2000/svg" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+{%- endmacro %}
+
+{# Overlay shown on a dashboard card when the viewer's plan lacks `feature` #}
+{% macro locked_overlay(feature) -%}
+<div class="locked-overlay">
+  <span class="locked-icon">{{ icon_lock(22) }}</span>
+  <span class="locked-text">Available in {{ plans[required_plan(feature)].name }}</span>
+  <a class="btn btn-upgrade" href="{{ url_for('auth.pricing') }}">Upgrade</a>
+</div>
+{%- endmacro %}
+
+{# "locked" class for a card when the current plan lacks `feature` #}
+{% macro locked_class(feature) -%}
+{% if current_plan and not has_feature(current_plan, feature) %}locked{% endif %}
+{%- endmacro %}

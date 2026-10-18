@@ -162,15 +162,20 @@ socket.on('drowning_alert', () => {
 
 // ── Renderers ───────────────────────────────────────────────
 // Locked modules arrive from the server already emptied; this only
-// greys out their cards and shows the plan badge.
-const PLAN_CARDS = { drowning: 'drowningCard', garbage: 'garbageCard', decision_engine: 'decisionCard' };
+// shows their locked overlay, the plan badge and the report lock. The
+// page is rendered locked already — this keeps it in sync when the plan
+// changes while the dashboard is open.
+const PLAN_LOCKS = {
+  drowning: 'drowningCard', garbage: 'garbageCard',
+  decision_engine: 'decisionCard', reports: 'reportBtn',
+};
 function applyPlan(plan) {
   if (!plan || !plan.features) return;
   const badge = document.getElementById('planBadge');
-  badge.textContent = plan.name;
+  badge.textContent = plan.name.toUpperCase();
   badge.className = 'pill plan-pill plan-' + plan.key;
-  for (const [feature, cardId] of Object.entries(PLAN_CARDS)) {
-    document.getElementById(cardId).classList.toggle('locked', !plan.features.includes(feature));
+  for (const [feature, id] of Object.entries(PLAN_LOCKS)) {
+    document.getElementById(id).classList.toggle('locked', !plan.features.includes(feature));
   }
 }
 
@@ -281,6 +286,8 @@ function updateDashboard(s) {
 // ── PDF report ──────────────────────────────────────────────
 function generateReport() {
   const btn = document.getElementById('reportBtn');
+  // Locked on plans without "reports" (the server also answers 403)
+  if (btn.classList.contains('locked')) { window.location.href = '/pricing'; return; }
   if (!btn) return;
   const label = btn.querySelector('.btn-label');
   const err = document.getElementById('reportError');

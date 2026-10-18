@@ -117,6 +117,9 @@ POOL_POLYGON = _parse_pool_polygon(os.getenv("POOL_POLYGON", ""))
 # requirement and falls back to ACTIVE_PLAN (CLI / offline demo).
 DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
 ACTIVE_PLAN = os.getenv("ACTIVE_PLAN", "plus")
+# Online payments for Pro/Plus. Until billing is configured the checkout
+# page shows "Payments coming soon" (admins can still set plans by hand).
+BILLING_ENABLED = os.getenv("BILLING_ENABLED", "0") == "1"
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "backend" / "data"))
 DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "app.db"))
 

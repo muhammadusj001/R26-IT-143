@@ -1,0 +1,18 @@
+{% extends "auth/base.html" %}
+{% block title %}Checkout{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h2 class="auth-title">Upgrade to {{ plans[plan_key].name }}</h2>
+  <p class="price-amount small">{{ price_label(plan_key) }}</p>
+  <div class="notice coming-soon">
+    <b>Payments coming soon.</b>
+    Online checkout is not {{ 'available yet' if billing_enabled else 'configured on this server' }}.
+    Contact the pool administrator — they can activate the {{ plans[plan_key].name }} plan for you
+    (e.g. after an offline payment).
+  </div>
+  <div class="account-actions">
+    <a class="btn btn-ghost" href="{{ url_for('auth.pricing') }}">Back to plans</a>
+    <a class="btn btn-ghost" href="{{ url_for('index') }}">Dashboard</a>
+  </div>
+</section>
+{% endblock %}

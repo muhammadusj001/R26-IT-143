@@ -16,7 +16,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import settings
 from core import db
-from core.plans import PLANS, resolve_plan_key
+from core.plans import (FEATURES, PLANS, has_feature, plan_change_kind, price_label,
+                        required_plan, resolve_plan_key)
 
 bp = Blueprint("auth", __name__)
 
@@ -84,7 +85,17 @@ def csrf_token():
 
 @bp.app_context_processor
 def _inject():
-    return {"csrf_token": csrf_token, "current_user": current_user(), "plans": PLANS}
+    return {
+        "csrf_token": csrf_token,
+        "current_user": current_user(),
+        "current_plan": current_plan(),  # None when logged out (outside DEMO_MODE)
+        "plans": PLANS,
+        "features": FEATURES,
+        "has_feature": has_feature,
+        "required_plan": required_plan,
+        "price_label": price_label,
+        "plan_change_kind": plan_change_kind,
+    }
 
 
 def _check_csrf():
@@ -155,6 +166,58 @@ def logout():
     return redirect(url_for("auth.login"))
 
 
+def _notify_plan_change(user_id):
+    for listener in plan_change_listeners:
+        listener(user_id)
+
+
+def user_required(view):
+    """Pages about the user's own account need a real login, even in DEMO_MODE."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if current_user() is None:
+            return redirect(url_for("auth.login", next=request.full_path.rstrip("?")))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@bp.route("/pricing")
+def pricing():
+    """Public: logged-out visitors see the plans with sign-up buttons."""
+    return render_template("auth/pricing.html")
+
+
+@bp.route("/account")
+@user_required
+def account():
+    return render_template("auth/account.html", user=current_user())
+
+
+@bp.route("/account/plan/basic", methods=["POST"])
+@user_required
+def select_basic():
+    """Basic is free, so switching to it is instant (no checkout)."""
+    _check_csrf()
+    user = current_user()
+    db.update_user(user["id"], plan="basic", plan_status="active", plan_renews_at=None)
+    _notify_plan_change(user["id"])
+    flash("You are now on the Basic plan.", "success")
+    return redirect(url_for("auth.account"))
+
+
+@bp.route("/billing/checkout/<plan_key>")
+@user_required
+def checkout(plan_key):
+    if plan_key not in PLANS:
+        abort(404)
+    if PLANS[plan_key]["price_usd"] == 0:
+        return redirect(url_for("auth.pricing"))
+    # Online payment is implemented in the billing step; until then (and
+    # whenever BILLING_ENABLED is off) explain how to get the plan.
+    return render_template("auth/coming_soon.html", plan_key=plan_key,
+                           billing_enabled=settings.BILLING_ENABLED)
+
+
 @bp.route("/admin/users")
 @admin_required
 def admin_users():
@@ -179,7 +242,6 @@ def admin_set_plan(user_id):
     except ValueError as exc:
         flash(f"Not saved: {exc}", "error")
         return redirect(url_for("auth.admin_users"))
-    for listener in plan_change_listeners:
-        listener(user_id)
+    _notify_plan_change(user_id)
     flash(f"{user['email']}: plan set to {PLANS[plan]['name']} ({status}).", "success")
     return redirect(url_for("auth.admin_users"))

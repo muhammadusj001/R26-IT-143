@@ -1,3 +1,4 @@
+{% import "auth/_plan_ui.html" as ui with context %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,10 +35,13 @@
       <span id="connText">Disconnected</span>
     </div>
     <div class="account-bar">
-      <span class="pill plan-pill" id="planBadge">–</span>
+      <a class="account-link" href="{{ url_for('auth.pricing') }}">Plans</a>
+      <a href="{{ url_for('auth.account') if current_user else url_for('auth.pricing') }}"
+         class="pill plan-pill plan-{{ current_plan or 'none' }}" id="planBadge"
+         title="Your plan">{{ plans[current_plan].name|upper if current_plan in plans else '–' }}</a>
       {% if current_user %}
-      <span class="account-name">{{ current_user['name'] }}</span>
       {% if current_user['is_admin'] %}<a class="account-link" href="{{ url_for('auth.admin_users') }}">Admin</a>{% endif %}
+      <a class="account-link account-name" href="{{ url_for('auth.account') }}">{{ current_user['name'] }}</a>
       <a class="btn btn-ghost" href="{{ url_for('auth.logout') }}">Sign out</a>
       {% else %}
       <a class="btn btn-ghost" href="{{ url_for('auth.login') }}">Sign in</a>
@@ -58,7 +62,9 @@
         <div class="header-actions">
           <button class="btn btn-start" id="startBtn" onclick="startDetection()">▶ Start</button>
           <button class="btn btn-stop" id="stopBtn" onclick="stopDetection()" disabled>■ Stop</button>
-          <button class="btn btn-report" id="reportBtn" onclick="generateReport()">
+          <button class="btn btn-report {{ ui.locked_class('reports') }}" id="reportBtn" onclick="generateReport()"
+                  title="PDF reports are available in {{ plans[required_plan('reports')].name }}">
+            <span class="report-lock">{{ ui.icon_lock(14) }}</span>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
             <span class="btn-label">Generate Report</span>
           </button>
@@ -81,11 +87,11 @@
       </div>
     </div>
 
-    <div class="card decision-card" id="decisionCard">
+    <div class="card decision-card {{ ui.locked_class('decision_engine') }}" id="decisionCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
         Decision Engine</h2></div>
-      <div class="locked-banner">🔒 Available on the <b>Plus</b> plan</div>
+      {{ ui.locked_overlay('decision_engine') }}
       <div class="decision-grid">
         <div>Maintenance urgency: <b id="maintUrgency" class="pill">LOW</b></div>
         <ul id="decisionNotes" class="notes"></ul>
@@ -109,12 +115,12 @@
       <div class="recommendation" id="maintRec">–</div>
     </div>
 
-    <div class="card" id="drowningCard">
+    <div class="card {{ ui.locked_class('drowning') }}" id="drowningCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         Drowning Detection</h2>
         <span class="model-status" id="drownModel">–</span></div>
-      <div class="locked-banner">🔒 Available on the <b>Pro</b> plan</div>
+      {{ ui.locked_overlay('drowning') }}
       <div class="stat-row">
         <div class="stat"><span class="stat-val ok" id="swimming">0</span><span class="stat-label">Swimming</span></div>
         <div class="stat"><span class="stat-val danger" id="drowningCount">0</span><span class="stat-label">Drowning</span></div>
@@ -124,12 +130,12 @@
         &nbsp;Alerts this session: <b id="totalDrownAlerts">0</b></div>
     </div>
 
-    <div class="card" id="garbageCard">
+    <div class="card {{ ui.locked_class('garbage') }}" id="garbageCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         Garbage Detection</h2>
         <span class="model-status" id="garbageModel">–</span></div>
-      <div class="locked-banner">🔒 Available on the <b>Plus</b> plan</div>
+      {{ ui.locked_overlay('garbage') }}
       <div class="stat-row">
         <div class="stat"><span class="stat-val" id="garbageCount">0</span><span class="stat-label">Objects</span></div>
         <div class="stat"><span class="stat-val" id="garbageStatus">CLEAR</span><span class="stat-label">Status</span></div>

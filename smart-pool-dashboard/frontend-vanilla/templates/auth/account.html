@@ -1,0 +1,32 @@
+{% extends "auth/base.html" %}
+{% import "auth/_plan_ui.html" as ui with context %}
+{% block title %}Account{% endblock %}
+{% block content %}
+<section class="card auth-card account-card">
+  <h2 class="auth-title">Your account</h2>
+  <p class="auth-sub">{{ user['name'] }} · {{ user['email'] }}</p>
+
+  <dl class="account-details">
+    <dt>Plan</dt>
+    <dd>{{ ui.plan_badge(user['plan']) }} <span class="muted-inline">{{ price_label(user['plan']) }}</span></dd>
+    <dt>Status</dt>
+    <dd><span class="pill {{ {'active': 'safe', 'pending': 'warn', 'cancelled': 'danger'}[user['plan_status']] }}">{{ user['plan_status']|upper }}</span></dd>
+    <dt>Renews</dt>
+    <dd class="mono">{{ user['plan_renews_at'][:10] if user['plan_renews_at'] else ('—' if user['plan'] == 'basic' else 'Not set') }}</dd>
+    <dt>Member since</dt>
+    <dd class="mono">{{ user['created_at'][:10] }}</dd>
+  </dl>
+
+  {% if current_plan != user['plan'] %}
+  <div class="notice notice-error account-note">
+    Your {{ plans[user['plan']].name }} plan is not in effect ({{ user['plan_status'] }}{% if user['plan_status'] == 'active' %}, renewal date passed{% endif %}) —
+    you currently have the features of <b>{{ plans[current_plan].name }}</b>.
+  </div>
+  {% endif %}
+
+  <div class="account-actions">
+    <a class="btn btn-start" href="{{ url_for('auth.pricing') }}">Change plan</a>
+    <a class="btn btn-ghost" href="{{ url_for('index') }}">Back to dashboard</a>
+  </div>
+</section>
+{% endblock %}

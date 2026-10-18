@@ -9,9 +9,20 @@ the report endpoint returns 403) — the frontend only reflects what the
 
 PLANS = {
     "basic": {"name": "Basic", "price_usd": 0,  "features": ["crowd", "water_quality"]},
-    "pro":   {"name": "Pro",   "price_usd": 15, "features": ["crowd", "water_quality", "drowning", "reports"]},
+    "pro":   {"name": "Pro",   "price_usd": 15, "features": ["crowd", "water_quality", "drowning", "reports"],
+              "badge": "Most popular"},
     "plus":  {"name": "Plus",  "price_usd": 25, "features": ["crowd", "water_quality", "drowning", "reports",
                                                             "garbage", "decision_engine"]},
+}
+
+# Display labels for every feature, in the order the pricing page lists them
+FEATURES = {
+    "crowd": "Crowd detection & bather load",
+    "water_quality": "Water quality monitoring",
+    "drowning": "Drowning detection & alerts",
+    "reports": "PDF session reports",
+    "garbage": "Garbage & littering detection",
+    "decision_engine": "Decision engine (risk & maintenance)",
 }
 
 # Unknown plan keys fall back to the most restrictive plan (fail closed)
@@ -32,6 +43,19 @@ def required_plan(feature):
     """Cheapest plan that includes feature (e.g. "reports" -> "pro")."""
     candidates = [k for k, p in PLANS.items() if feature in p["features"]]
     return min(candidates, key=lambda k: PLANS[k]["price_usd"]) if candidates else None
+
+
+def price_label(plan_key):
+    price = PLANS[plan_key]["price_usd"]
+    return "Free" if price == 0 else f"${price}/month"
+
+
+def plan_change_kind(current_key, target_key):
+    """"current", "upgrade" or "downgrade" (by price) for the pricing page."""
+    if current_key == target_key:
+        return "current"
+    current = PLANS[current_key]["price_usd"] if current_key in PLANS else -1
+    return "upgrade" if PLANS[target_key]["price_usd"] > current else "downgrade"
 
 
 def resolve_plan_key(key):

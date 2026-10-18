@@ -1,0 +1,48 @@
+{% extends "auth/base.html" %}
+{% import "auth/_plan_ui.html" as ui with context %}
+{% block title %}Plans{% endblock %}
+{% block main_class %}pricing-main{% endblock %}
+{% block content %}
+<section class="pricing-intro">
+  <h2 class="auth-title">Choose your plan</h2>
+  <p class="auth-sub">Every plan uses the same camera and sensors — higher plans unlock more AI modules.
+    Basic is free; you can switch to it at any time.</p>
+</section>
+
+<div class="pricing-grid">
+  {% for key, plan in plans.items() %}
+  {% set kind = plan_change_kind(current_plan, key) if current_user else none %}
+  <article class="card price-card plan-card-{{ key }}{% if plan.badge %} featured{% endif %}{% if kind == 'current' %} current{% endif %}">
+    {% if plan.badge %}<span class="price-badge">{{ plan.badge }}</span>{% endif %}
+    <h3 class="price-name">{{ plan.name }}</h3>
+    <div class="price-amount">
+      {% if plan.price_usd == 0 %}Free{% else %}<span class="price-currency">$</span>{{ plan.price_usd }}<span class="price-period">/month</span>{% endif %}
+    </div>
+    <ul class="feature-list">
+      {% for fkey, label in features.items() %}
+      <li class="{{ 'yes' if fkey in plan.features else 'no' }}">
+        {{ ui.icon_check() if fkey in plan.features else ui.icon_cross() }}
+        <span>{{ label }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <div class="price-action">
+      {% if not current_user %}
+        <a class="btn btn-start price-btn" href="{{ url_for('auth.register') }}">Create account</a>
+      {% elif kind == 'current' %}
+        <span class="btn price-btn price-current">Current plan</span>
+      {% elif plan.price_usd == 0 %}
+        <form method="post" action="{{ url_for('auth.select_basic') }}">
+          <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-ghost price-btn">Downgrade</button>
+        </form>
+      {% else %}
+        <a class="btn price-btn {{ 'btn-start' if kind == 'upgrade' else 'btn-ghost' }}"
+           href="{{ url_for('auth.checkout', plan_key=key) }}">{{ kind|capitalize }}</a>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}
