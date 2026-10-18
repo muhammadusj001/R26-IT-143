@@ -24,6 +24,7 @@ class DecisionEngine:
 
         # ── Overall safety risk ──────────────────────────────
         crowd_at_high_density = crowd["density_level"] in ("HIGH", "OVER CAPACITY")
+        garbage_high_risk = garbage.get("risk_level") == "HIGH"
 
         overall_risk = "NORMAL"
         if drowning["status"] == "DANGER":
@@ -36,13 +37,20 @@ class DecisionEngine:
         elif water["status"] == "CRITICAL":
             overall_risk = "HIGH"
             notes.append("Water quality CRITICAL — swimming not advised.")
-        elif crowd_at_high_density or water["status"] == "WARNING":
+        elif crowd_at_high_density or water["status"] == "WARNING" or garbage_high_risk:
             overall_risk = "ELEVATED"
 
         if crowd["density_level"] == "OVER CAPACITY":
             notes.append(
                 f"Pool is OVER CAPACITY ({crowd.get('swimmer_count', 0)}/"
                 f"{crowd.get('max_capacity', 0)} bathers) — restrict entry."
+            )
+
+        if garbage_high_risk:
+            notes.append(
+                f"Intentional littering detected (source: {garbage.get('source', 'unknown')}, "
+                f"{garbage.get('intent_confidence', 0)}% confidence) — risk escalated, "
+                "consider dispatching staff."
             )
 
         # ── Maintenance urgency (crowd load × water trend) ───

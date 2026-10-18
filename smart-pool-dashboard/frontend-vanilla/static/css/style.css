@@ -178,6 +178,13 @@ body {
 }
 .card-header .sub { font-size: 11px; color: var(--text-dim); font-weight: 400; }
 .model-status { font-size: 11px; color: var(--text-dim); }
+.wq-header-actions { display: flex; align-items: center; gap: 10px; }
+.btn-test {
+  padding: 5px 12px; font-size: 11.5px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06); color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-test:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
 .icon { flex-shrink: 0; }
 
 /* Camera */
@@ -234,21 +241,42 @@ body {
 }
 .camera-meta b { font-family: "JetBrains Mono", monospace; color: var(--text); font-weight: 600; }
 
+/* Session stats strip — peak swimmers / alerts this session */
+.session-stats {
+  display: flex; gap: 22px; margin-top: 6px; font-size: 12px; color: var(--text-faint);
+}
+.session-stats b { font-family: "JetBrains Mono", monospace; color: var(--text-dim); font-weight: 600; }
+
+.header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 .btn {
   border: 0; border-radius: 8px; padding: 9px 18px; font-weight: 600;
   cursor: pointer; font-size: 13px; font-family: "Inter", sans-serif;
-  transition: transform var(--t), opacity var(--t), box-shadow var(--t);
+  transition: transform var(--t), opacity var(--t), box-shadow var(--t), background var(--t);
 }
 .btn:hover:not(:disabled) { transform: translateY(-1px); }
 .btn:disabled { opacity: 0.35; cursor: default; transform: none; }
 .btn-start {
-  background: linear-gradient(135deg, #16a34a, #15803d); color: #fff; margin-right: 6px;
+  background: linear-gradient(135deg, #16a34a, #15803d); color: #fff;
   box-shadow: 0 4px 14px rgba(22, 163, 74, 0.25);
 }
 .btn-stop {
   background: linear-gradient(135deg, #dc2626, #b91c1c); color: #fff;
   box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
 }
+/* Neutral/secondary — deliberately not green or red like start/stop */
+.btn-report {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255, 255, 255, 0.06); color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-report:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.btn-report svg { flex-shrink: 0; }
+
+.report-error {
+  display: none; color: var(--danger); font-size: 12px; align-self: center;
+}
+.report-error.show { display: inline-block; }
 
 /* Stats */
 .stat-row { display: flex; gap: 10px; }
@@ -265,11 +293,25 @@ body {
 }
 .stat-val.ok { color: var(--safe); }
 .stat-val.danger { color: var(--danger); }
+/* Marks a single water-quality value as a safe-default substitute for a
+   sensor that errored this cycle, not a live reading — see setSensorVal()
+   in dashboard.js. Dashed underline via background instead of
+   text-decoration so it stays legible at the stat tile's large font size. */
+.stat-val.fallback {
+  color: var(--warn);
+  border-bottom: 2px dashed var(--warn);
+}
 .stat-label {
   font-size: 10.5px; color: #9fb0c5; text-transform: uppercase;
   letter-spacing: 0.08em; margin-top: 4px; display: block; font-weight: 600;
 }
 .stat-row.wq .stat-val { font-size: 18px; }
+
+/* Garbage intent-aware detection: risk badge + source/intent line */
+.garbage-intent {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: var(--gap-sm); font-size: 12.5px; color: var(--text-dim);
+}
 
 .recommendation {
   margin-top: var(--gap-sm); font-size: 13px; color: #c3d0de;
@@ -348,6 +390,10 @@ body {
   .card { padding: 14px 14px; }
   .camera-container { min-height: 220px; }
   .camera-meta { flex-wrap: wrap; gap: 8px 18px; }
+  .session-stats { flex-wrap: wrap; gap: 5px 16px; font-size: 11px; }
+  /* Icon-only on mobile to save header width */
+  .btn-report .btn-label { display: none; }
+  .btn-report { padding: 9px 11px; }
   /* Stat tiles: 2 per row instead of 3 */
   .stat-row { flex-wrap: wrap; }
   .stat-row .stat { flex: 1 1 calc(50% - 5px); }
@@ -365,6 +411,57 @@ body {
   .stat-row .stat { flex: 1 1 100%; }
   .camera-meta { gap: 6px 14px; font-size: 12px; }
 }
+
+/* ── Water quality test popup ──────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(4, 8, 14, 0.6); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+
+.modal-overlay[hidden] {
+  display: none !important;
+}
+
+.modal {
+  width: 100%; max-width: 420px; max-height: calc(100vh - 40px); overflow-y: auto;
+  background: #101a2c; border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 15px; font-weight: 700; }
+.modal-close {
+  background: none; border: 0; color: var(--text-dim); font-size: 22px;
+  line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+}
+.modal-close:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.modal-body { padding: 20px; }
+
+.test-phase { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.test-progress-bar {
+  height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.test-progress-fill {
+  height: 100%; background: linear-gradient(90deg, var(--accent), #5eead4);
+  transition: width 0.4s linear;
+}
+.test-meta {
+  display: flex; justify-content: space-between; margin-top: 8px;
+  font-size: 12px; color: var(--text-dim); font-family: "JetBrains Mono", monospace;
+}
+.test-samples { margin-top: 14px; font-size: 13px; color: #c3d0de; }
+
+.test-result-status { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.test-sample-count { font-size: 12px; color: var(--text-dim); }
+.test-result-grid { margin-bottom: 14px; }
+.test-reasons { margin: 0 0 16px 18px; font-size: 13px; color: #c3d0de; }
+.test-reasons li { margin-bottom: 6px; }
+.test-reasons-none { font-size: 13px; color: var(--safe); margin-bottom: 16px; }
 
 /* ── Motion preference ──────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

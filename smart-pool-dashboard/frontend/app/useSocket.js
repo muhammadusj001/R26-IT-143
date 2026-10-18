@@ -37,5 +37,6 @@ export function useSocket() {
     running,
     start: () => socketRef.current?.emit("start_detection"),
     stop: () => socketRef.current?.emit("stop_detection"),
+    startWaterTest: () => socketRef.current?.emit("start_water_test"),
   };
 }
