@@ -5,7 +5,7 @@ import {
 } from "@/components/ModuleCards";
 
 export default function Dashboard() {
-  const { connected, frame, state, running, start, stop } = useSocket();
+  const { connected, frame, state, running, start, stop, startWaterTest } = useSocket();
 
   if (!state) {
     return (
@@ -75,7 +75,7 @@ export default function Dashboard() {
           <CrowdCard crowd={state.crowd} />
           <DrowningCard drowning={state.drowning} />
           <GarbageCard garbage={state.garbage} />
-          <WaterCard wq={state.water_quality} />
+          <WaterCard wq={state.water_quality} onStartTest={startWaterTest} />
           <AlertsCard alerts={state.alerts} />
         </section>
       </main>
