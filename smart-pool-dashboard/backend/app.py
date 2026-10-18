@@ -33,7 +33,7 @@ for _repo in ("component1-crowd-maintenance", "component2-water-quality",
     sys.path.insert(0, str(_BASE / "components" / _repo))
 
 import cv2
-from flask import Flask, render_template, send_file, jsonify, after_this_request, request
+from flask import Flask, render_template, send_file, jsonify, after_this_request, redirect, request
 from flask_socketio import SocketIO, emit, ConnectionRefusedError
 
 from config import settings
@@ -63,6 +63,23 @@ app.config.update(
 )
 app.register_blueprint(auth.bp)
 app.register_blueprint(billing.bp)
+
+
+@app.before_request
+def _redirect_127_to_localhost():
+    """127.0.0.1 and localhost get separate login cookies, so send local
+    visitors to one canonical host: http://127.0.0.1:5000/x?y -> http://localhost:5000/x?y.
+    Only the exact 127.0.0.1 host is affected (ngrok, VS Code tunnels and LAN
+    IPs pass through), and only GET/HEAD: a 302 would turn a POST into a GET
+    and drop its body. Socket.IO traffic is left alone."""
+    hostname, sep, port = request.host.partition(":")
+    if hostname != "127.0.0.1" or request.method not in ("GET", "HEAD") \
+            or request.path.startswith("/socket.io"):
+        return None
+    target = f"{request.scheme}://localhost{sep}{port}{request.path}"
+    if request.query_string:
+        target += "?" + request.query_string.decode("latin-1")
+    return redirect(target, code=302)
 db.init_db()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
