@@ -45,10 +45,18 @@ WATER_MODEL_DIR = Path(
 
 # ── Camera source (shared by crowd / drowning / garbage) ─────
 # Accepts:
-#   an integer index ("0", "1")  -> local/Iriun webcam
+#   an integer index ("0", "1", "3") -> webcam / DroidCam Client / OBS Virtual Camera
+#   "droidcam:<phone-ip>" -> DroidCam app over Wi-Fi (http://<phone-ip>:4747/video)
 #   a stream URL ("http://<phone-ip>:8080/video") -> IP Webcam app
+#   a video file path -> loops, for demos
 #   "simulate" -> synthetic frames (no camera needed, demo mode)
 CAMERA_SOURCE = os.getenv("CAMERA_SOURCE", "simulate")
+# Seconds before the first reconnect attempt (doubles up to 10 s)
+CAMERA_RECONNECT_DELAY = float(os.getenv("CAMERA_RECONNECT_DELAY", "2"))
+# Open/read timeout for URL streams (DroidCam over Wi-Fi)
+CAMERA_OPEN_TIMEOUT_MS = int(os.getenv("CAMERA_OPEN_TIMEOUT_MS", "5000"))
+# Resize every frame to FRAME_WIDTH x FRAME_HEIGHT
+CAMERA_RESIZE = os.getenv("CAMERA_RESIZE", "1") == "1"
 
 # ── Water quality sensor source ──────────────────────────────
 # Serial port of the Arduino (e.g. "COM3", "/dev/cu.usbmodem21401"),

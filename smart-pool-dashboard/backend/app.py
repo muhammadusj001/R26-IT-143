@@ -102,7 +102,7 @@ def vision_loop():
         socketio.emit("camera_error", {"message": f"Cannot open camera: {camera.source}"})
         return
 
-    state.update_root({"running": True, "camera_connected": True})
+    state.update_root({"running": True, "camera_connected": True, "camera": camera.status()})
     start = time.time()
     frame_num = 0
     processed_num = 0
@@ -110,11 +110,14 @@ def vision_loop():
     while state.data["running"]:
         ok, frame = camera.read()
         if not ok:
-            state.update_root({"camera_connected": False})
-            socketio.emit("camera_error", {"message": "Camera lost — reconnecting"})
+            # Reconnection retries forever with backoff; only notify the
+            # dashboard once per outage instead of on every attempt.
+            if state.data["camera_connected"]:
+                state.update_root({"camera_connected": False, "camera": camera.status()})
+                socketio.emit("camera_error", {"message": "Camera lost — reconnecting"})
             if not camera.reconnect():
                 continue
-            state.update_root({"camera_connected": True})
+            state.update_root({"camera_connected": True, "camera": camera.status()})
             continue
         if frame is None:
             # OpenCV can report a transient read failure with ok=True.
@@ -189,6 +192,7 @@ def vision_loop():
             "frame_num": frame_num,
             "fps": round(fps, 1),
             "session_time": f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}",
+            "camera": camera.status(),
         })
 
         # ── Push frame + full state to dashboard ─────────────
@@ -292,7 +296,7 @@ def main():
     print("=" * 60)
     print("  R26-IT-143 — SMART POOL MONITORING (UNIFIED)")
     print("=" * 60)
-    print(f"  Camera source : {settings.CAMERA_SOURCE}")
+    print(f"  Camera source : {settings.CAMERA_SOURCE} -> {camera.source} ({camera.type})")
     print(f"  Sensor source : {settings.SENSOR_SOURCE}")
     crowd.load()
     drowning.load()
