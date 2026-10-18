@@ -21,6 +21,8 @@ class SystemState:
             "frame_num": 0,
             "session_time": "00:00",
             "camera_connected": False,
+            # CameraManager.status(): source, type, backend, connected, fps
+            "camera": {},
             "crowd": {
                 "swimmer_count": 0,
                 "density_level": "LOW",
@@ -30,6 +32,10 @@ class SystemState:
                 "recommendations": [],
                 "maintenance_recommendation": "No maintenance needed",
                 "model_status": "not_loaded",
+                "max_capacity": 0,
+                "occupancy_pct": 0.0,
+                "total_people_detected": 0,
+                "people_outside_pool": 0,
             },
             "drowning": {
                 "swimming": 0,
@@ -46,6 +52,11 @@ class SystemState:
                 "alert_status": "CLEAR",
                 "total_events": 0,
                 "model_status": "not_loaded",
+                "source": "unknown",
+                "intent": "none",
+                "intent_score": 0.0,
+                "intent_confidence": 0,
+                "risk_level": "NORMAL",
             },
             "water_quality": {
                 "ph": None,
@@ -55,7 +66,18 @@ class SystemState:
                 "tds": None,
                 "status": "UNKNOWN",
                 "sensor_connected": False,
+                "simulated": False,
+                "warming_up": False,
+                "fallback_fields": [],
                 "model_status": "not_loaded",
+                "test": {
+                    "status": "idle",
+                    "elapsed": 0,
+                    "duration": 60,
+                    "warmup": 20,
+                    "samples_collected": 0,
+                    "result": None,
+                },
             },
             "decision": {
                 "overall_risk": "NORMAL",

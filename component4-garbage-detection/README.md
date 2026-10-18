@@ -1,3 +1,37 @@
+# Component 4 — Garbage Intrusion Detection
+**Owner:** TODO — add member name
+**AI Task:** Detects foreign objects in the pool (YOLOv8n, 6 classes) and alerts only on true garbage — ball/leaf are detected but excluded.
+
+## Where everything lives
+| What | File | Purpose |
+|---|---|---|
+| AI inference | `component4_garbage/detector.py` | loads the YOLOv8n model, runs detection per frame |
+| Business logic | `component4_garbage/detector.py` (same file) | `GARBAGE_CLASSES` disambiguation — ball/leaf are detected but never raise an alert |
+| Utilities | `component4_garbage/drawing.py` | bounding-box drawing helpers |
+| Trained model | `models/swimming_pool_garbage_yolo.pt` (6.25 MB) | YOLOv8n, 6-class garbage-detection weights |
+| Training code | `ml/train.ipynb` (also `ml/GarbageDetection.ipynb`) | how the model was trained |
+| Evaluation code | `ml/detect.ipynb`; raw per-epoch numbers in `ml/runs/pool_yolo_model-4/results.csv` | how metrics were produced |
+| Dataset config | `ml/data.yaml` | classes and split paths (note: lives at `ml/data.yaml`, not `ml/datasets/data.yaml`) |
+| Standalone demo | `standalone_demo.py` | run this component alone |
+
+## Model performance
+| Metric | Value |
+|---|---|
+| Precision | 0.853 |
+| Recall | 0.878 |
+| mAP50 | 0.903 |
+| mAP50-95 | 0.393 |
+| Epochs | 10 (CPU, yolov8n) |
+| Caveat | Only 25 test images — `MODEL_ASSESSMENT.md` flags this as too few for credible claims |
+
+## How to run this component alone
+```bash
+pip install -r requirements.txt
+python standalone_demo.py
+```
+
+---
+
 # Component 4 — Garbage Intrusion Detection (R26-IT-143)
 
 YOLOv8n (6 classes) with class disambiguation: only actual garbage

@@ -38,7 +38,7 @@ class WaterQualityPredictor:
             return False
 
     def predict(self, reading: dict) -> str:
-        """reading keys: ph, temperature, chlorine, turbidity, tds."""
+        """reading keys: ph, temperature, turbidity, tds."""
         if self.model is None:
             return "UNKNOWN"
         # ── Original Component 2 inference (unchanged) ────────
