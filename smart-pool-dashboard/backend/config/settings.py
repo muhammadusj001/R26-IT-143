@@ -63,9 +63,13 @@ SENSOR_INTERVAL_SECONDS = float(os.getenv("SENSOR_INTERVAL_SECONDS", "2.0"))
 
 # ── Detection thresholds (preserved from original components) ─
 # Component 3 used 0.5 in the live script and 0.35 in its dashboard;
-# the dashboard value is kept as the runtime default and is now tunable.
-DROWNING_CONF_THRESHOLD = float(os.getenv("DROWNING_CONF_THRESHOLD", "0.35"))
-DROWNING_CONSEC_FRAMES = int(os.getenv("DROWNING_CONSEC_FRAMES", "3"))
+# 0.5 is now the default (40-55% Drowning boxes were mostly false alarms).
+DROWNING_CONF_THRESHOLD = float(os.getenv("DROWNING_CONF_THRESHOLD", "0.5"))
+# Expressed in camera frames; app.py converts it to detector runs.
+DROWNING_CONSEC_FRAMES = int(os.getenv("DROWNING_CONSEC_FRAMES", "10"))
+# best.pt (YOLOv8s) was trained at 640, so drowning gets its own imgsz
+# instead of the shared DETECTION_IMGSZ.
+DROWNING_IMGSZ = int(os.getenv("DROWNING_IMGSZ", "640"))
 
 CROWD_CONF_THRESHOLD = float(os.getenv("CROWD_CONF_THRESHOLD", "0.4"))
 GARBAGE_CONF_THRESHOLD = float(os.getenv("GARBAGE_CONF_THRESHOLD", "0.4"))
