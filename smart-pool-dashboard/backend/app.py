@@ -17,6 +17,7 @@ reports) is filtered for that viewer's own plan on the server.
 """
 
 import base64
+import logging
 import os
 import sys
 import tempfile
@@ -36,7 +37,7 @@ from flask import Flask, render_template, send_file, jsonify, after_this_request
 from flask_socketio import SocketIO, emit, ConnectionRefusedError
 
 from config import settings
-from core import auth, db
+from core import auth, billing, db
 from core.auth import current_plan, current_user, login_required
 from core.camera import CameraManager
 from core.state import state
@@ -61,7 +62,9 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
 )
 app.register_blueprint(auth.bp)
+app.register_blueprint(billing.bp)
 db.init_db()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # The vision loop below staggers crowd/drowning/garbage across processed

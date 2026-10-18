@@ -117,9 +117,20 @@ POOL_POLYGON = _parse_pool_polygon(os.getenv("POOL_POLYGON", ""))
 # requirement and falls back to ACTIVE_PLAN (CLI / offline demo).
 DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
 ACTIVE_PLAN = os.getenv("ACTIVE_PLAN", "plus")
-# Online payments for Pro/Plus. Until billing is configured the checkout
-# page shows "Payments coming soon" (admins can still set plans by hand).
-BILLING_ENABLED = os.getenv("BILLING_ENABLED", "0") == "1"
+# ── Billing: PayHere recurring subscriptions (Pro / Plus, USD monthly) ─
+# Real values only in .env. Without merchant id + secret + PUBLIC_BASE_URL
+# the upgrade buttons say "Billing not configured — ask admin" (admins
+# can still set plans by hand on /admin/users).
+PAYHERE_MERCHANT_ID = os.getenv("PAYHERE_MERCHANT_ID", "").strip()
+PAYHERE_MERCHANT_SECRET = os.getenv("PAYHERE_MERCHANT_SECRET", "").strip()
+PAYHERE_SANDBOX = os.getenv("PAYHERE_SANDBOX", "1") == "1"
+PAYHERE_CHECKOUT_URL = (
+    "https://sandbox.payhere.lk/pay/checkout" if PAYHERE_SANDBOX
+    else "https://www.payhere.lk/pay/checkout"
+)
+# Public https base URL PayHere can reach for notify_url (e.g. ngrok)
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+BILLING_CONFIGURED = bool(PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET and PUBLIC_BASE_URL)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "backend" / "data"))
 DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "app.db"))
 

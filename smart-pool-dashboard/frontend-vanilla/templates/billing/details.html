@@ -1,0 +1,23 @@
+{% extends "auth/base.html" %}
+{% block title %}Billing details{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h2 class="auth-title">Upgrade to {{ plans[plan_key].name }}</h2>
+  <p class="auth-sub">{{ price_label(plan_key) }}, billed monthly by PayHere until you cancel.
+    PayHere needs a few billing details — we only ask once.</p>
+  <form method="post" action="{{ url_for('billing.checkout', plan_key=plan_key) }}" class="auth-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Phone
+      <input type="tel" name="phone" value="{{ details.phone }}" autocomplete="tel" required autofocus>
+    </label>
+    <label>Address
+      <input type="text" name="address" value="{{ details.address }}" autocomplete="street-address" required>
+    </label>
+    <label>City
+      <input type="text" name="city" value="{{ details.city }}" autocomplete="address-level2" required>
+    </label>
+    <button type="submit" class="btn btn-start auth-submit">Continue to PayHere</button>
+  </form>
+  <p class="auth-switch"><a href="{{ url_for('auth.pricing') }}">Back to plans</a></p>
+</section>
+{% endblock %}

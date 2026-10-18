@@ -29,4 +29,28 @@
     <a class="btn btn-ghost" href="{{ url_for('index') }}">Back to dashboard</a>
   </div>
 </section>
+
+<section class="card auth-card account-card payments-card">
+  <h2 class="auth-title">Payment history</h2>
+  {% if payments %}
+  <div class="table-wrap">
+    <table class="users-table payments-table">
+      <thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Status</th><th>Order</th></tr></thead>
+      <tbody>
+      {% for p in payments %}
+        <tr>
+          <td class="mono">{{ p['created_at'][:10] }}</td>
+          <td>{{ plans[p['plan']].name if p['plan'] in plans else p['plan'] }}</td>
+          <td class="mono">{{ p['currency'] }} {{ p['amount'] }}</td>
+          <td><span class="pill {{ {'paid': 'safe', 'pending': 'warn'}.get(p['status'], 'danger') }}">{{ p['status']|upper }}</span></td>
+          <td class="mono">{{ p['order_id'] }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="auth-sub">No payments yet.</p>
+  {% endif %}
+</section>
 {% endblock %}

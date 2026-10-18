@@ -166,5 +166,21 @@
 .account-note { margin-bottom: 18px; }
 .account-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .account-actions .btn { text-decoration: none; }
+.price-unavailable {
+  cursor: default; font-size: 12.5px; color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04); border: 1px dashed var(--border-strong);
+}
+.price-unavailable:hover { transform: none; }
+.payments-card { max-width: 640px; }
+.payments-table td { padding: 9px 10px; }
+.pay-progress {
+  height: 4px; border-radius: 999px; overflow: hidden; margin-bottom: 20px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.pay-progress span {
+  display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--accent);
+  animation: pay-slide 1.4s ease-in-out infinite;
+}
+@keyframes pay-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .coming-soon { margin-bottom: 18px; line-height: 1.55; }
 .coming-soon b { color: var(--warn); display: block; margin-bottom: 4px; }

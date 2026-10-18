@@ -1,0 +1,16 @@
+{% extends "auth/base.html" %}
+{% block title %}Redirecting to PayHere{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h2 class="auth-title">Redirecting to PayHere…</h2>
+  <p class="auth-sub">You are subscribing to <b>AquaGuard {{ plans[plan_key].name }}</b>
+    ({{ price_label(plan_key) }}). Payment is handled securely by PayHere.</p>
+  <form method="post" action="{{ action }}" id="payhereForm">
+    {% for name, value in fields.items() %}
+    <input type="hidden" name="{{ name }}" value="{{ value }}">
+    {% endfor %}
+    <button type="submit" class="btn btn-start auth-submit">Continue to PayHere</button>
+  </form>
+</section>
+<script>document.getElementById('payhereForm').submit();</script>
+{% endblock %}

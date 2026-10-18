@@ -37,9 +37,12 @@
           <input type="hidden" name="csrf" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-ghost price-btn">Downgrade</button>
         </form>
+      {% elif not billing_configured %}
+        <span class="btn price-btn price-unavailable" title="Online payment is not set up on this server">
+          Billing not configured — ask admin</span>
       {% else %}
         <a class="btn price-btn {{ 'btn-start' if kind == 'upgrade' else 'btn-ghost' }}"
-           href="{{ url_for('auth.checkout', plan_key=key) }}">{{ kind|capitalize }}</a>
+           href="{{ url_for('billing.checkout', plan_key=key) }}">{{ kind|capitalize }}</a>
       {% endif %}
     </div>
   </article>

@@ -190,7 +190,8 @@ def pricing():
 @bp.route("/account")
 @user_required
 def account():
-    return render_template("auth/account.html", user=current_user())
+    user = current_user()
+    return render_template("auth/account.html", user=user, payments=db.list_payments(user["id"]))
 
 
 @bp.route("/account/plan/basic", methods=["POST"])
@@ -199,23 +200,15 @@ def select_basic():
     """Basic is free, so switching to it is instant (no checkout)."""
     _check_csrf()
     user = current_user()
+    if db.has_active_subscription(user):
+        # Downgrading here would not stop PayHere from charging the card
+        flash("You have an active paid subscription — ask the admin to cancel it "
+              "(it is then switched to Basic).", "error")
+        return redirect(url_for("auth.account"))
     db.update_user(user["id"], plan="basic", plan_status="active", plan_renews_at=None)
     _notify_plan_change(user["id"])
     flash("You are now on the Basic plan.", "success")
     return redirect(url_for("auth.account"))
-
-
-@bp.route("/billing/checkout/<plan_key>")
-@user_required
-def checkout(plan_key):
-    if plan_key not in PLANS:
-        abort(404)
-    if PLANS[plan_key]["price_usd"] == 0:
-        return redirect(url_for("auth.pricing"))
-    # Online payment is implemented in the billing step; until then (and
-    # whenever BILLING_ENABLED is off) explain how to get the plan.
-    return render_template("auth/coming_soon.html", plan_key=plan_key,
-                           billing_enabled=settings.BILLING_ENABLED)
 
 
 @bp.route("/admin/users")

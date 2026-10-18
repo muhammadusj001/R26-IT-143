@@ -1,0 +1,53 @@
+{% extends "auth/base.html" %}
+{% block title %}Payment received{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h2 class="auth-title" id="payTitle">Payment received — activating your plan</h2>
+  <p class="auth-sub" id="payText">Waiting for PayHere to confirm order
+    <span class="mono">{{ order['order_id'] }}</span>. This usually takes a few seconds.</p>
+  <div class="pay-progress" id="payProgress"><span></span></div>
+  <div class="account-actions">
+    <a class="btn btn-ghost" href="{{ url_for('auth.account') }}">Account</a>
+    <a class="btn btn-start" id="payDashboard" href="{{ url_for('index') }}" hidden>Go to dashboard</a>
+  </div>
+</section>
+<script>
+// The plan is only changed by PayHere's verified notification, so poll
+// the server until it shows up (or the order is reported as failed).
+(function () {
+  const orderId = {{ order['order_id']|tojson }};
+  const plan = {{ order['plan']|tojson }};
+  const planName = {{ plans[order['plan']].name|tojson }};
+  const started = Date.now();
+  const title = document.getElementById('payTitle');
+  const text = document.getElementById('payText');
+  const done = (heading, body) => {
+    title.textContent = heading;
+    text.textContent = body;
+    document.getElementById('payProgress').hidden = true;
+    document.getElementById('payDashboard').hidden = false;
+  };
+  async function poll() {
+    try {
+      const r = await fetch('/api/me?order_id=' + encodeURIComponent(orderId), { cache: 'no-store' });
+      if (r.ok) {
+        const me = await r.json();
+        const status = me.order && me.order.status;
+        if (status === 'paid' && me.effective_plan === plan) {
+          return done('Your ' + planName + ' plan is active', 'Thank you! All ' + planName + ' features are unlocked.');
+        }
+        if (['failed', 'cancelled', 'chargedback'].includes(status)) {
+          return done('Payment not completed', 'PayHere reported the payment as ' + status + '. You have not been upgraded.');
+        }
+      }
+    } catch (e) { /* network blip — keep polling */ }
+    if (Date.now() - started > 120000) {
+      return done('Still waiting for confirmation',
+        'PayHere has not confirmed the payment yet. Your plan will update automatically once it does — check your account page later.');
+    }
+    setTimeout(poll, 2000);
+  }
+  poll();
+})();
+</script>
+{% endblock %}
