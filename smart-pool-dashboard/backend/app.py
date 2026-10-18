@@ -9,6 +9,11 @@ results into SystemState. WaterQualityMonitor runs independently on its
 own thread. The DecisionEngine fuses all module outputs into
 system-level intelligence. Flask-SocketIO (the stack Component 3
 already used) pushes everything to the single dashboard in real time.
+
+Accounts: every viewer logs in and has their own plan (core/plans.py).
+The vision loop runs the modules unlocked for the user who pressed
+Start; everything sent to a viewer (state, alerts, video overlays,
+reports) is filtered for that viewer's own plan on the server.
 """
 
 import base64
@@ -27,14 +32,17 @@ for _repo in ("component1-crowd-maintenance", "component2-water-quality",
     sys.path.insert(0, str(_BASE / "components" / _repo))
 
 import cv2
-from flask import Flask, render_template, send_file, jsonify, after_this_request
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, send_file, jsonify, after_this_request, request
+from flask_socketio import SocketIO, emit, ConnectionRefusedError
 
 from config import settings
+from core import auth, db
+from core.auth import current_plan, current_user, login_required
 from core.camera import CameraManager
 from core.state import state
 from core.decision_engine import decision_engine
-from core.plans import has_feature, plan_payload, required_plan, resolve_plan_key
+from core.gating import filter_state, filter_summary
+from core.plans import has_feature, required_plan, resolve_plan_key
 from core.session_tracker import SessionTracker
 from core.report_generator import generate_session_report
 from component1_crowd.detector import CrowdDetector
@@ -47,37 +55,36 @@ app = Flask(
     template_folder=str(settings.BASE_DIR / "frontend-vanilla" / "templates"),
     static_folder=str(settings.BASE_DIR / "frontend-vanilla" / "static"),
 )
-app.config["SECRET_KEY"] = settings.SECRET_KEY
+app.config.update(
+    SECRET_KEY=settings.SECRET_KEY,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+app.register_blueprint(auth.bp)
+db.init_db()
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
-
-# ── Subscription plan (feature gating is enforced here, not in the UI) ─
-ACTIVE_PLAN = resolve_plan_key(settings.ACTIVE_PLAN)
-state.update_root({"plan": plan_payload(ACTIVE_PLAN)})
 
 # The vision loop below staggers crowd/drowning/garbage across processed
 # frames as a CPU optimisation — see vision_loop(). With every module
 # unlocked the cycle is 6 processed frames (stage = processed_num % 6):
 #   0 crowd | 1 drowning | 2 drowning | 3 crowd | 4 drowning | 5 garbage
 # i.e. crowd 2/6 (1 in 3), drowning 3/6, garbage 1/6. Modules locked by
-# the active plan are removed from the cycle, so only enabled modules
-# take turns:
+# the plan of the user who pressed Start are removed from the cycle, so
+# only enabled modules take turns:
 #   pro   (no garbage)           -> crowd, drowning, drowning, crowd, drowning
 #   basic (no drowning/garbage)  -> crowd on every processed frame
 _FULL_SCHEDULE = ("crowd", "drowning", "drowning", "crowd", "drowning", "garbage")
-_SCHEDULE = tuple(m for m in _FULL_SCHEDULE if has_feature(ACTIVE_PLAN, m))
-_DROWNING_ENABLED = "drowning" in _SCHEDULE
 # DROWNING_CONSEC_FRAMES is expressed in camera frames. Drowning runs
 # once every PROCESS_EVERY_N_FRAMES * cycle / runs camera frames, so
 # convert to "detector runs" covering about the same real time (min 5,
-# which is also the detector's minimum smoothing window).
-_drowning_consec_frames = 5
-if _DROWNING_ENABLED:
-    _CAMERA_FRAMES_PER_DROWNING_RUN = (
-        settings.PROCESS_EVERY_N_FRAMES * len(_SCHEDULE) / _SCHEDULE.count("drowning")
-    )
-    _drowning_consec_frames = max(
-        5, round(settings.DROWNING_CONSEC_FRAMES / _CAMERA_FRAMES_PER_DROWNING_RUN)
-    )
+# which is also the detector's minimum smoothing window). Computed for
+# the full schedule; with garbage locked drowning runs slightly more often.
+_CAMERA_FRAMES_PER_DROWNING_RUN = (
+    settings.PROCESS_EVERY_N_FRAMES * len(_FULL_SCHEDULE) / _FULL_SCHEDULE.count("drowning")
+)
+_drowning_consec_frames = max(
+    5, round(settings.DROWNING_CONSEC_FRAMES / _CAMERA_FRAMES_PER_DROWNING_RUN)
+)
 
 camera = CameraManager()
 crowd = CrowdDetector(model_path=settings.CROWD_MODEL_PATH,
@@ -96,18 +103,70 @@ garbage = GarbageDetector(model_path=settings.GARBAGE_MODEL_PATH,
                           conf_threshold=settings.GARBAGE_CONF_THRESHOLD,
                           imgsz=settings.DETECTION_IMGSZ)
 session = SessionTracker()
-water = WaterQualityMonitor(
-    on_update=lambda: socketio.emit("state_update", state.snapshot()),
-    session_tracker=session,
-)
+
+
+# ── Connected viewers (one entry per Socket.IO connection) ───
+_viewers = {}  # sid -> {"user_id": int | None, "plan": str}
+_viewers_lock = threading.Lock()
+
+
+def _viewer_groups():
+    """{plan_key: [sid, ...]} for everyone currently connected."""
+    groups = {}
+    with _viewers_lock:
+        for sid, viewer in _viewers.items():
+            groups.setdefault(viewer["plan"], []).append(sid)
+    return groups
+
+
+def _overlay_tier(plan_key):
+    """Which video overlays a viewer may see. Plans are nested
+    (basic ⊂ pro ⊂ plus), so three frame variants cover every viewer."""
+    if has_feature(plan_key, "garbage"):
+        return "plus"
+    if has_feature(plan_key, "drowning"):
+        return "pro"
+    return "basic"
+
+
+def broadcast_state():
+    """Send every viewer the shared state filtered for their own plan."""
+    snap = state.snapshot()
+    for plan_key, sids in _viewer_groups().items():
+        payload = filter_state(snap, plan_key)
+        for sid in sids:
+            socketio.emit("state_update", payload, to=sid)
+
+
+def _on_plan_change(user_id):
+    """Admin changed a plan: re-gate that user's open dashboards now."""
+    plan_key = auth.plan_for(db.get_user(user_id))
+    with _viewers_lock:
+        for viewer in _viewers.values():
+            if viewer["user_id"] == user_id:
+                viewer["plan"] = plan_key
+    broadcast_state()
+
+
+auth.plan_change_listeners.append(_on_plan_change)
+
+water = WaterQualityMonitor(on_update=broadcast_state, session_tracker=session)
 
 _vision_thread = None
 _last_crowd_density = None
 
 
-def vision_loop():
-    """Shared camera loop: one frame feeds all three vision modules."""
+def vision_loop(plan_key=None):
+    """Shared camera loop: one frame feeds all three vision modules.
+
+    plan_key is the plan of the user who pressed Start; without one
+    (CLI / system_check / DEMO_MODE) ACTIVE_PLAN is used."""
     global _last_crowd_density
+    plan_key = resolve_plan_key(plan_key or settings.ACTIVE_PLAN)
+    schedule = tuple(m for m in _FULL_SCHEDULE if has_feature(plan_key, m))
+    drowning_enabled = "drowning" in schedule
+    decision_enabled = has_feature(plan_key, "decision_engine")
+
     if not camera.open():
         state.update_root({"running": False, "camera_connected": False})
         socketio.emit("camera_error", {"message": f"Cannot open camera: {camera.source}"})
@@ -145,17 +204,26 @@ def vision_loop():
         # ── CPU optimisation: stagger the 3 vision models ─────
         # Running crowd + drowning + garbage detection on every single
         # processed frame is the main FPS cost. Instead, each enabled
-        # module gets its own turns in the cycle (see _SCHEDULE); modules
-        # locked by the plan never run — each module still runs
+        # module gets its own turns in the cycle (see _FULL_SCHEDULE);
+        # modules locked by the plan never run — each module still runs
         # completely independently, just less often.
         # On the frames where a module doesn't run, its previous result
         # simply isn't touched, so state.snapshot() keeps returning its
         # last known values and the dashboard card never goes blank.
         # Drowning boxes are redrawn on its off-frames (draw_last) so the
         # overlay doesn't flicker.
-        module = _SCHEDULE[processed_num % len(_SCHEDULE)] if _SCHEDULE else None
+        module = schedule[processed_num % len(schedule)] if schedule else None
         drown_alert = None
         garbage_alert = None
+
+        # Viewers on lower plans get a frame without locked overlays, so
+        # keep an undrawn copy when one of them is watching.
+        groups = _viewer_groups()
+        tiers = {_overlay_tier(p) for p in groups}
+        raw = None
+        if (module == "drowning" and "basic" in tiers) or \
+                (module == "garbage" and tiers - {"plus"}):
+            raw = frame.copy()
 
         if module == "crowd":
             frame, crowd_result = crowd.process(frame)
@@ -181,20 +249,35 @@ def vision_loop():
             frame, garbage_result, garbage_alert = garbage.process(frame)
             state.update_module("garbage", garbage_result)
 
-        if _DROWNING_ENABLED and module != "drowning":
+        # Crowd overlays only (crowd frames) or no overlays (other frames)
+        crowd_only = None
+        if "basic" in tiers:
+            crowd_only = raw if raw is not None else frame.copy()
+
+        if drowning_enabled and module != "drowning":
             frame = drowning.draw_last(frame)
+
+        views = {"plus": frame, "basic": crowd_only}
+        if "pro" in tiers:
+            if module == "garbage":
+                views["pro"] = drowning.draw_last(raw.copy()) if drowning_enabled else raw
+            else:
+                views["pro"] = frame
 
         if drown_alert:
             drown_message = f"DROWNING DETECTED — {drown_alert['count']} person(s)"
             state.add_alert("drowning", drown_message, "danger")
             session.record_alert("drowning", drown_message, "danger")
-            socketio.emit("drowning_alert", drown_alert)
+            for viewer_plan, sids in groups.items():
+                if has_feature(viewer_plan, "drowning"):
+                    for sid in sids:
+                        socketio.emit("drowning_alert", drown_alert, to=sid)
         if garbage_alert:
             state.add_alert("garbage", garbage_alert, "warning")
             session.record_alert("garbage", garbage_alert, "warning")
 
         # ── Cross-module intelligence (Decision Engine only) ─
-        if has_feature(ACTIVE_PLAN, "decision_engine"):
+        if decision_enabled:
             decision = decision_engine.evaluate(state.snapshot())
         else:
             decision = decision_engine.neutral()
@@ -210,14 +293,19 @@ def vision_loop():
             "camera": camera.status(),
         })
 
-        # ── Push frame + full state to dashboard ─────────────
-        _, buffer = cv2.imencode(
-            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, settings.JPEG_QUALITY]
-        )
-        socketio.emit("frame_update", {
-            "frame": base64.b64encode(buffer).decode("utf-8"),
-            "state": state.snapshot(),
-        })
+        # ── Push frame + state to each viewer, filtered by plan ─
+        encoded = {}
+        for tier in tiers:
+            _, buffer = cv2.imencode(
+                ".jpg", views[tier], [cv2.IMWRITE_JPEG_QUALITY, settings.JPEG_QUALITY]
+            )
+            encoded[tier] = base64.b64encode(buffer).decode("utf-8")
+        snap = state.snapshot()
+        for viewer_plan, sids in groups.items():
+            payload = {"frame": encoded[_overlay_tier(viewer_plan)],
+                       "state": filter_state(snap, viewer_plan)}
+            for sid in sids:
+                socketio.emit("frame_update", payload, to=sid)
         time.sleep(0.02)
 
     camera.release()
@@ -225,23 +313,28 @@ def vision_loop():
 
 # ── Routes ───────────────────────────────────────────────────
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/api/status")
+@login_required
 def status():
-    return state.snapshot()
+    return filter_state(state.snapshot(), current_plan())
 
 
 @app.route("/api/session/summary")
+@login_required
 def session_summary():
-    return session.get_summary()
+    return filter_summary(session.get_summary(), current_plan())
 
 
 @app.route("/api/report")
+@login_required
 def download_report():
-    if not has_feature(ACTIVE_PLAN, "reports"):
+    plan_key = current_plan()
+    if not has_feature(plan_key, "reports"):
         return jsonify({"error": "upgrade_required",
                         "required_plan": required_plan("reports")}), 403
     try:
@@ -254,6 +347,7 @@ def download_report():
             "garbage": snap.get("garbage", {}).get("model_status"),
             "water_quality": snap.get("water_quality", {}).get("model_status"),
         }
+        summary = filter_summary(summary, plan_key)
 
         fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
         os.close(fd)
@@ -280,16 +374,31 @@ def download_report():
 
 # ── Socket events ────────────────────────────────────────────
 @socketio.on("connect")
-def on_connect():
-    emit("state_update", state.snapshot())
+def on_connect(auth_data=None):
+    # Same login session cookie as the HTTP routes
+    plan_key = current_plan()
+    if plan_key is None:
+        raise ConnectionRefusedError("login_required")
+    user = current_user()
+    with _viewers_lock:
+        _viewers[request.sid] = {"user_id": user["id"] if user else None, "plan": plan_key}
+    emit("state_update", filter_state(state.snapshot(), plan_key))
+
+
+@socketio.on("disconnect")
+def on_disconnect(*_args):
+    with _viewers_lock:
+        _viewers.pop(request.sid, None)
 
 
 @socketio.on("start_detection")
 def start_detection():
     global _vision_thread
     if not state.data["running"]:
+        with _viewers_lock:
+            plan_key = _viewers.get(request.sid, {}).get("plan")
         session.start()
-        _vision_thread = threading.Thread(target=vision_loop, daemon=True)
+        _vision_thread = threading.Thread(target=vision_loop, args=(plan_key,), daemon=True)
         _vision_thread.start()
         emit("detection_started", {"message": "Detection started"})
 
@@ -304,10 +413,9 @@ def stop_detection():
 @socketio.on("start_water_test")
 def start_water_test():
     water.start_test()
-    # Broadcast (not the request-scoped `emit`) so every connected
-    # dashboard reflects the test starting, matching how regular water
-    # readings are pushed via water.on_update.
-    socketio.emit("state_update", state.snapshot())
+    # Broadcast so every connected dashboard reflects the test starting,
+    # matching how regular water readings are pushed via water.on_update.
+    broadcast_state()
 
 
 def main():
@@ -316,14 +424,22 @@ def main():
     print("=" * 60)
     print(f"  Camera source : {settings.CAMERA_SOURCE} -> {camera.source} ({camera.type})")
     print(f"  Sensor source : {settings.SENSOR_SOURCE}")
-    print(f"  Plan          : {ACTIVE_PLAN} ({', '.join(plan_payload(ACTIVE_PLAN)['features'])})")
-    # Models for features locked by the plan are never run, so skip loading them
-    for name, detector in (("Crowd", crowd), ("Drowning", drowning), ("Garbage", garbage)):
-        if has_feature(ACTIVE_PLAN, name.lower()):
-            detector.load()
-            print(f"  {name + ' model':<14}: {detector.model_status}")
-        else:
-            print(f"  {name + ' model':<14}: locked by plan")
+    if settings.DEMO_MODE:
+        print(f"  Accounts      : DEMO_MODE — no login required, plan '{settings.ACTIVE_PLAN}'")
+    else:
+        print(f"  Accounts      : login required ({len(db.list_users())} users in {settings.DB_PATH.name})")
+        if not any(u["is_admin"] for u in db.list_users()):
+            print("  No admin yet  : run 'python manage.py create-admin'")
+    if settings.SECRET_KEY_GENERATED:
+        print("  WARNING: SECRET_KEY not set in .env — using a random key; "
+              "everyone is logged out on restart")
+    # Each user has their own plan, so every model may be needed
+    crowd.load()
+    drowning.load()
+    garbage.load()
+    print(f"  Crowd model   : {crowd.model_status}")
+    print(f"  Drowning model: {drowning.model_status}")
+    print(f"  Garbage model : {garbage.model_status}")
     water.start()
     print(f"  Water model   : {water.predictor.model_status}")
     print("=" * 60)

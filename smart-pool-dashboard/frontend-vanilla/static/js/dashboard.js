@@ -9,6 +9,10 @@ const socket = io();
 // ── Connection ──────────────────────────────────────────────
 socket.on('connect', () => setConn(true));
 socket.on('disconnect', () => setConn(false));
+// The server refuses the socket when the login session is missing/expired
+socket.on('connect_error', (err) => {
+  if (err && err.message === 'login_required') window.location.href = '/login?next=/';
+});
 
 function setConn(ok) {
   document.getElementById('connDot').className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
@@ -157,8 +161,22 @@ socket.on('drowning_alert', () => {
 });
 
 // ── Renderers ───────────────────────────────────────────────
+// Locked modules arrive from the server already emptied; this only
+// greys out their cards and shows the plan badge.
+const PLAN_CARDS = { drowning: 'drowningCard', garbage: 'garbageCard', decision_engine: 'decisionCard' };
+function applyPlan(plan) {
+  if (!plan || !plan.features) return;
+  const badge = document.getElementById('planBadge');
+  badge.textContent = plan.name;
+  badge.className = 'pill plan-pill plan-' + plan.key;
+  for (const [feature, cardId] of Object.entries(PLAN_CARDS)) {
+    document.getElementById(cardId).classList.toggle('locked', !plan.features.includes(feature));
+  }
+}
+
 function updateDashboard(s) {
   if (!s) return;
+  applyPlan(s.plan);
   setText('fps', s.fps);
   setText('frameNum', s.frame_num);
   setText('sessionTime', s.session_time);
@@ -277,7 +295,10 @@ function generateReport() {
         let msg = 'Report generation failed';
         try {
           const data = await resp.json();
-          if (data && data.error) msg = data.error;
+          if (data && data.error === 'upgrade_required') {
+            msg = 'Reports need the ' + data.required_plan.charAt(0).toUpperCase()
+              + data.required_plan.slice(1) + ' plan';
+          } else if (data && data.error) msg = data.error;
         } catch (e) { /* keep default message */ }
         throw new Error(msg);
       }

@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/auth.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body>
@@ -31,6 +32,16 @@
     <div class="connection-status">
       <span class="status-dot disconnected" id="connDot"></span>
       <span id="connText">Disconnected</span>
+    </div>
+    <div class="account-bar">
+      <span class="pill plan-pill" id="planBadge">–</span>
+      {% if current_user %}
+      <span class="account-name">{{ current_user['name'] }}</span>
+      {% if current_user['is_admin'] %}<a class="account-link" href="{{ url_for('auth.admin_users') }}">Admin</a>{% endif %}
+      <a class="btn btn-ghost" href="{{ url_for('auth.logout') }}">Sign out</a>
+      {% else %}
+      <a class="btn btn-ghost" href="{{ url_for('auth.login') }}">Sign in</a>
+      {% endif %}
     </div>
   </div>
 </header>
@@ -70,10 +81,11 @@
       </div>
     </div>
 
-    <div class="card decision-card">
+    <div class="card decision-card" id="decisionCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
         Decision Engine</h2></div>
+      <div class="locked-banner">🔒 Available on the <b>Plus</b> plan</div>
       <div class="decision-grid">
         <div>Maintenance urgency: <b id="maintUrgency" class="pill">LOW</b></div>
         <ul id="decisionNotes" class="notes"></ul>
@@ -102,6 +114,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         Drowning Detection</h2>
         <span class="model-status" id="drownModel">–</span></div>
+      <div class="locked-banner">🔒 Available on the <b>Pro</b> plan</div>
       <div class="stat-row">
         <div class="stat"><span class="stat-val ok" id="swimming">0</span><span class="stat-label">Swimming</span></div>
         <div class="stat"><span class="stat-val danger" id="drowningCount">0</span><span class="stat-label">Drowning</span></div>
@@ -116,6 +129,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         Garbage Detection</h2>
         <span class="model-status" id="garbageModel">–</span></div>
+      <div class="locked-banner">🔒 Available on the <b>Plus</b> plan</div>
       <div class="stat-row">
         <div class="stat"><span class="stat-val" id="garbageCount">0</span><span class="stat-label">Objects</span></div>
         <div class="stat"><span class="stat-val" id="garbageStatus">CLEAR</span><span class="stat-label">Status</span></div>

@@ -1,0 +1,87 @@
+/* Accounts, admin page and plan locking — builds on style.css tokens */
+
+/* ── Account bar (auth pages + dashboard header) ───────────── */
+.account-bar { gap: 14px; flex-wrap: wrap; }
+.account-name { font-size: 13px; color: var(--text-dim); }
+.account-link { font-size: 13px; color: var(--text-dim); text-decoration: none; }
+.account-link:hover { color: var(--accent); }
+.logo { color: inherit; }
+.btn-ghost {
+  display: inline-flex; align-items: center; text-decoration: none;
+  padding: 6px 14px; font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.06); color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.1); }
+
+.plan-pill { font-size: 11px; padding: 3px 11px; }
+.plan-basic { background: rgba(255, 255, 255, 0.06); color: var(--text-dim); border-color: var(--border-strong); }
+.plan-pro   { background: rgba(34, 211, 238, 0.12); color: var(--accent); border-color: rgba(34, 211, 238, 0.35); }
+.plan-plus  { background: var(--warn-soft); color: var(--warn); border-color: rgba(251, 191, 36, 0.35); }
+.admin-pill { font-size: 10px; padding: 2px 8px; background: var(--danger-soft); color: var(--danger); }
+
+/* ── Sign in / register ────────────────────────────────────── */
+.auth-main {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 56px 16px; gap: var(--gap-sm);
+}
+.auth-card { width: 100%; max-width: 420px; padding: 28px 28px 24px; }
+.auth-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.auth-sub { font-size: 13px; color: var(--text-dim); margin-bottom: 20px; line-height: 1.5; }
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+.auth-form label, .plan-form { font-size: 12.5px; color: var(--text-dim); font-weight: 500; }
+.auth-form label { display: flex; flex-direction: column; gap: 6px; }
+.auth-form .hint { color: var(--text-faint); font-weight: 400; }
+.auth-form input, .plan-form select, .plan-form input {
+  font: inherit; font-size: 14px; color: var(--text);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 10px 12px; outline: none;
+  transition: border-color var(--t), box-shadow var(--t);
+}
+.auth-form input:focus, .plan-form select:focus, .plan-form input:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.plan-form input[type="date"] { color-scheme: dark; }
+.auth-submit { margin-top: 6px; padding: 11px 18px; font-size: 14px; }
+.auth-switch { margin-top: 18px; font-size: 13px; color: var(--text-dim); text-align: center; }
+.auth-switch a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.auth-switch a:hover { text-decoration: underline; }
+
+.notice-stack { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
+.admin-main .notice-stack { max-width: none; margin-bottom: var(--gap-sm); }
+.notice {
+  font-size: 13px; padding: 10px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--surface);
+}
+.notice-success { color: var(--safe); background: var(--safe-soft); border-color: rgba(52, 211, 153, 0.3); }
+.notice-error   { color: var(--danger); background: var(--danger-soft); border-color: rgba(248, 113, 113, 0.3); }
+
+/* ── Admin users table ─────────────────────────────────────── */
+.admin-main { padding: var(--gap); max-width: 1200px; margin: 0 auto; }
+.table-wrap { overflow-x: auto; }
+.users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.users-table th {
+  text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-faint);
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.users-table td { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.users-table tr:last-child td { border-bottom: 0; }
+.user-name { font-weight: 600; }
+.user-email { font-size: 12px; color: var(--text-dim); }
+.mono { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--text-dim); }
+.plan-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.plan-form select, .plan-form input { font-size: 13px; padding: 7px 10px; }
+
+/* ── Dashboard: modules locked by the viewer's plan ────────── */
+.card.locked { position: relative; }
+.card.locked > :not(.card-header):not(.locked-banner) { opacity: 0.25; filter: grayscale(1); pointer-events: none; }
+.locked-banner {
+  display: none; align-items: center; gap: 8px;
+  margin-bottom: 12px; padding: 8px 12px; border-radius: var(--radius-sm);
+  font-size: 12.5px; color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.25); border: 1px dashed var(--border-strong);
+}
+.card.locked .locked-banner { display: flex; }
+.locked-banner b { color: var(--accent); }

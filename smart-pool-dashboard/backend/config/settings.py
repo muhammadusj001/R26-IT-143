@@ -111,15 +111,27 @@ def _parse_pool_polygon(raw: str):
 # (no ROI filtering), matching the previous behaviour.
 POOL_POLYGON = _parse_pool_polygon(os.getenv("POOL_POLYGON", ""))
 
-# ── Subscription plan ────────────────────────────────────────
-# "basic", "pro" or "plus" (see core/plans.py). Locked features are
-# enforced in the backend. Default "plus" keeps every module enabled.
+# ── Accounts & subscription plans ────────────────────────────
+# Each logged-in user's plan ("basic"/"pro"/"plus", see core/plans.py)
+# decides which features they get. DEMO_MODE=1 skips the login
+# requirement and falls back to ACTIVE_PLAN (CLI / offline demo).
+DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
 ACTIVE_PLAN = os.getenv("ACTIVE_PLAN", "plus")
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "backend" / "data"))
+DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "app.db"))
 
 # ── Server ───────────────────────────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "5000"))
-SECRET_KEY = os.getenv("SECRET_KEY", "smart_pool_r26_it_143")
+# Signs the login session cookie — set a long random value in .env.
+# Without one, a random key is generated per run (everyone is logged
+# out on restart).
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+SECRET_KEY_GENERATED = not SECRET_KEY
+if SECRET_KEY_GENERATED:
+    import secrets
+
+    SECRET_KEY = secrets.token_hex(32)
 
 # Frame processing
 FRAME_WIDTH = int(os.getenv("FRAME_WIDTH", "640"))

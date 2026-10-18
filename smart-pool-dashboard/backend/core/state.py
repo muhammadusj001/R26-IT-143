@@ -23,7 +23,8 @@ class SystemState:
             "camera_connected": False,
             # CameraManager.status(): source, type, backend, connected, fps
             "camera": {},
-            # Active subscription plan: {key, name, features} (core/plans.py)
+            # Viewer's plan {key, name, features} — filled per viewer by
+            # core/gating.filter_state before anything is sent
             "plan": {},
             "crowd": {
                 "swimmer_count": 0,
