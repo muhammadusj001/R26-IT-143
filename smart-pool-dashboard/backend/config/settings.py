@@ -111,6 +111,11 @@ def _parse_pool_polygon(raw: str):
 # (no ROI filtering), matching the previous behaviour.
 POOL_POLYGON = _parse_pool_polygon(os.getenv("POOL_POLYGON", ""))
 
+# ── Subscription plan ────────────────────────────────────────
+# "basic", "pro" or "plus" (see core/plans.py). Locked features are
+# enforced in the backend. Default "plus" keeps every module enabled.
+ACTIVE_PLAN = os.getenv("ACTIVE_PLAN", "plus")
+
 # ── Server ───────────────────────────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "5000"))

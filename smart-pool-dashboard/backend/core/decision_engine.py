@@ -14,6 +14,11 @@ five-layer architecture.
 
 
 class DecisionEngine:
+    @staticmethod
+    def neutral() -> dict:
+        """Result used when the active plan has no "decision_engine"."""
+        return {"overall_risk": "NORMAL", "maintenance_urgency": "LOW", "notes": []}
+
     def evaluate(self, snapshot: dict) -> dict:
         crowd = snapshot["crowd"]
         drowning = snapshot["drowning"]

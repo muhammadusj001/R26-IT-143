@@ -34,6 +34,7 @@ from config import settings
 from core.camera import CameraManager
 from core.state import state
 from core.decision_engine import decision_engine
+from core.plans import has_feature, plan_payload, required_plan, resolve_plan_key
 from core.session_tracker import SessionTracker
 from core.report_generator import generate_session_report
 from component1_crowd.detector import CrowdDetector
@@ -49,24 +50,34 @@ app = Flask(
 app.config["SECRET_KEY"] = settings.SECRET_KEY
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
+# ── Subscription plan (feature gating is enforced here, not in the UI) ─
+ACTIVE_PLAN = resolve_plan_key(settings.ACTIVE_PLAN)
+state.update_root({"plan": plan_payload(ACTIVE_PLAN)})
+
 # The vision loop below staggers crowd/drowning/garbage across processed
-# frames as a CPU optimisation — see vision_loop(). Schedule over a
-# 6-processed-frame cycle (stage = processed_num % 6):
+# frames as a CPU optimisation — see vision_loop(). With every module
+# unlocked the cycle is 6 processed frames (stage = processed_num % 6):
 #   0 crowd | 1 drowning | 2 drowning | 3 crowd | 4 drowning | 5 garbage
-# i.e. crowd 2/6 (unchanged, 1 in 3), drowning 3/6, garbage 1/6.
-_STAGGER_CYCLE = 6
-_CROWD_STAGES = (0, 3)
-_DROWNING_STAGES = (1, 2, 4)
+# i.e. crowd 2/6 (1 in 3), drowning 3/6, garbage 1/6. Modules locked by
+# the active plan are removed from the cycle, so only enabled modules
+# take turns:
+#   pro   (no garbage)           -> crowd, drowning, drowning, crowd, drowning
+#   basic (no drowning/garbage)  -> crowd on every processed frame
+_FULL_SCHEDULE = ("crowd", "drowning", "drowning", "crowd", "drowning", "garbage")
+_SCHEDULE = tuple(m for m in _FULL_SCHEDULE if has_feature(ACTIVE_PLAN, m))
+_DROWNING_ENABLED = "drowning" in _SCHEDULE
 # DROWNING_CONSEC_FRAMES is expressed in camera frames. Drowning runs
 # once every PROCESS_EVERY_N_FRAMES * cycle / runs camera frames, so
 # convert to "detector runs" covering about the same real time (min 5,
 # which is also the detector's minimum smoothing window).
-_CAMERA_FRAMES_PER_DROWNING_RUN = (
-    settings.PROCESS_EVERY_N_FRAMES * _STAGGER_CYCLE / len(_DROWNING_STAGES)
-)
-_drowning_consec_frames = max(
-    5, round(settings.DROWNING_CONSEC_FRAMES / _CAMERA_FRAMES_PER_DROWNING_RUN)
-)
+_drowning_consec_frames = 5
+if _DROWNING_ENABLED:
+    _CAMERA_FRAMES_PER_DROWNING_RUN = (
+        settings.PROCESS_EVERY_N_FRAMES * len(_SCHEDULE) / _SCHEDULE.count("drowning")
+    )
+    _drowning_consec_frames = max(
+        5, round(settings.DROWNING_CONSEC_FRAMES / _CAMERA_FRAMES_PER_DROWNING_RUN)
+    )
 
 camera = CameraManager()
 crowd = CrowdDetector(model_path=settings.CROWD_MODEL_PATH,
@@ -133,20 +144,20 @@ def vision_loop():
 
         # ── CPU optimisation: stagger the 3 vision models ─────
         # Running crowd + drowning + garbage detection on every single
-        # processed frame is the main FPS cost. Instead, each module
-        # gets its own turns in a 6-frame cycle (see _STAGGER_CYCLE):
-        # crowd on stages 0/3, drowning on 1/2/4, garbage on 5 — each
-        # module still runs completely independently, just less often.
+        # processed frame is the main FPS cost. Instead, each enabled
+        # module gets its own turns in the cycle (see _SCHEDULE); modules
+        # locked by the plan never run — each module still runs
+        # completely independently, just less often.
         # On the frames where a module doesn't run, its previous result
         # simply isn't touched, so state.snapshot() keeps returning its
         # last known values and the dashboard card never goes blank.
         # Drowning boxes are redrawn on its off-frames (draw_last) so the
         # overlay doesn't flicker.
-        stage = processed_num % _STAGGER_CYCLE
+        module = _SCHEDULE[processed_num % len(_SCHEDULE)] if _SCHEDULE else None
         drown_alert = None
         garbage_alert = None
 
-        if stage in _CROWD_STAGES:
+        if module == "crowd":
             frame, crowd_result = crowd.process(frame)
             state.update_module("crowd", crowd_result)
             session.record_crowd(
@@ -163,14 +174,14 @@ def vision_loop():
                 state.add_alert("crowd", crowd_alert, crowd_severity)
                 session.record_alert("crowd", crowd_alert, crowd_severity)
             _last_crowd_density = crowd_density
-        elif stage in _DROWNING_STAGES:
+        elif module == "drowning":
             frame, drown_result, drown_alert = drowning.process(frame)
             state.update_module("drowning", drown_result)
-        else:
+        elif module == "garbage":
             frame, garbage_result, garbage_alert = garbage.process(frame)
             state.update_module("garbage", garbage_result)
 
-        if stage not in _DROWNING_STAGES:
+        if _DROWNING_ENABLED and module != "drowning":
             frame = drowning.draw_last(frame)
 
         if drown_alert:
@@ -183,7 +194,11 @@ def vision_loop():
             session.record_alert("garbage", garbage_alert, "warning")
 
         # ── Cross-module intelligence (Decision Engine only) ─
-        state.update_module("decision", decision_engine.evaluate(state.snapshot()))
+        if has_feature(ACTIVE_PLAN, "decision_engine"):
+            decision = decision_engine.evaluate(state.snapshot())
+        else:
+            decision = decision_engine.neutral()
+        state.update_module("decision", decision)
 
         # ── Session stats ────────────────────────────────────
         elapsed = time.time() - start
@@ -226,6 +241,9 @@ def session_summary():
 
 @app.route("/api/report")
 def download_report():
+    if not has_feature(ACTIVE_PLAN, "reports"):
+        return jsonify({"error": "upgrade_required",
+                        "required_plan": required_plan("reports")}), 403
     try:
         snap = state.snapshot()
         summary = session.get_summary()
@@ -298,12 +316,14 @@ def main():
     print("=" * 60)
     print(f"  Camera source : {settings.CAMERA_SOURCE} -> {camera.source} ({camera.type})")
     print(f"  Sensor source : {settings.SENSOR_SOURCE}")
-    crowd.load()
-    drowning.load()
-    garbage.load()
-    print(f"  Crowd model   : {crowd.model_status}")
-    print(f"  Drowning model: {drowning.model_status}")
-    print(f"  Garbage model : {garbage.model_status}")
+    print(f"  Plan          : {ACTIVE_PLAN} ({', '.join(plan_payload(ACTIVE_PLAN)['features'])})")
+    # Models for features locked by the plan are never run, so skip loading them
+    for name, detector in (("Crowd", crowd), ("Drowning", drowning), ("Garbage", garbage)):
+        if has_feature(ACTIVE_PLAN, name.lower()):
+            detector.load()
+            print(f"  {name + ' model':<14}: {detector.model_status}")
+        else:
+            print(f"  {name + ' model':<14}: locked by plan")
     water.start()
     print(f"  Water model   : {water.predictor.model_status}")
     print("=" * 60)

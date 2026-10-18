@@ -23,6 +23,8 @@ class SystemState:
             "camera_connected": False,
             # CameraManager.status(): source, type, backend, connected, fps
             "camera": {},
+            # Active subscription plan: {key, name, features} (core/plans.py)
+            "plan": {},
             "crowd": {
                 "swimmer_count": 0,
                 "density_level": "LOW",
