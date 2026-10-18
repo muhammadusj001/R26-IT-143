@@ -1,5 +1,6 @@
 flask>=3.0
 flask-socketio>=5.3
+python-dotenv>=1.0
 opencv-python>=4.8
 ultralytics>=8.1
 torch>=2.0

@@ -108,6 +108,10 @@ def vision_loop():
                 continue
             state.update_root({"camera_connected": True})
             continue
+        if frame is None:
+            # OpenCV can report a transient read failure with ok=True.
+            # Do not send an empty frame into the detectors or imencode.
+            continue
 
         frame_num += 1
         # Frame skipping preserved from Component 3 (FPS optimisation)

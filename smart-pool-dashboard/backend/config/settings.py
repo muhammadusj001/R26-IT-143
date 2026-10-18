@@ -10,8 +10,11 @@ existed inside each component's scripts.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # ── Project paths ────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(BASE_DIR / ".env")
 # Component repos are mounted as git submodules under components/
 COMPONENTS_DIR = BASE_DIR / "components"
 MODELS_DIR = BASE_DIR / "models"
