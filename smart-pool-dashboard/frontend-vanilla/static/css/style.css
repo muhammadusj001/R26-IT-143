@@ -419,6 +419,11 @@ body {
   display: flex; align-items: center; justify-content: center;
   padding: 20px;
 }
+
+.modal-overlay[hidden] {
+  display: none !important;
+}
+
 .modal {
   width: 100%; max-width: 420px; max-height: calc(100vh - 40px); overflow-y: auto;
   background: #101a2c; border: 1px solid var(--border-strong);

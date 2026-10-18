@@ -21,6 +21,8 @@ class SystemState:
             "frame_num": 0,
             "session_time": "00:00",
             "camera_connected": False,
+            # CameraManager.status(): source, type, backend, connected, fps
+            "camera": {},
             "crowd": {
                 "swimmer_count": 0,
                 "density_level": "LOW",
