@@ -21,3 +21,19 @@ Thumbs.db
 yolo11*.pt
 yolov8*.pt
 download.py
+
+# local secrets, databases and runtime output — never commit
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+**/backend/data/
+ngrok*
+*.log
+**/snapshots/
+**/recordings/
+*.mp4
+*.avi
+*.mov
+*.mkv
