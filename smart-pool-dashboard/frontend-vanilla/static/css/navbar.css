@@ -1,0 +1,219 @@
+/* Shared top navbar (templates/partials/_navbar.html) — every page.
+   Zones: brand | centred links | status + account. Colours: style.css tokens. */
+
+.navbar {
+  position: sticky; top: 0; z-index: 100;
+  /* auto | 1fr | auto, but only the brand may shrink (its title ellipsizes):
+     the links keep their width and stay centred in the free space */
+  display: grid; align-items: center;
+  grid-template-columns: minmax(0, max-content) minmax(max-content, 1fr) max-content;
+  column-gap: 32px;
+  height: 68px; padding: 0 32px;
+  background: var(--surface) var(--grad-nav);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--card-border);
+  box-shadow: var(--shadow-sm);
+}
+@supports (backdrop-filter: blur(10px)) {
+  .navbar { background: var(--grad-nav); }
+}
+/* Thin gradient accent line under the bar; on the dashboard it turns
+   solid amber / orange / red when the overall risk rises */
+.navbar::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;
+  background: var(--grad-accent-line);
+}
+.navbar:has(#overallRisk.elevated)::after { background: var(--warning); }
+.navbar:has(#overallRisk.high)::after { background: var(--orange); }
+.navbar:has(#overallRisk.emergency)::after { background: var(--danger); }
+
+.navbar a { text-decoration: none; }
+.navbar :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ── Left: brand ──────────────────────────────────────────── */
+.nav-brand { display: flex; align-items: center; gap: 12px; min-width: 0; color: inherit; border-radius: 10px; }
+.nav-logo { display: flex; flex-shrink: 0; color: var(--primary); }
+.nav-brand-text { display: flex; flex-direction: column; min-width: 0; }
+.nav-title {
+  font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nav-title-short { display: none; }
+.nav-subtitle {
+  font-size: 12px; color: var(--text-3); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Centre: links ────────────────────────────────────────── */
+.nav-links { display: flex; justify-content: center; align-items: center; gap: 8px; min-width: 0; }
+.nav-link {
+  padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 500;
+  color: var(--text-2); white-space: nowrap;
+  transition: background var(--t), color var(--t);
+}
+.nav-link:hover { background: var(--surface-2); color: var(--text); }
+.nav-link.active { background: var(--primary-soft); color: var(--primary-strong); font-weight: 600; }
+
+/* ── Right: status | account ──────────────────────────────── */
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.nav-group { display: flex; align-items: center; }
+.nav-status { gap: 12px; }
+.nav-account { gap: 16px; }
+.nav-divider { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
+
+/* System status pill: NORMAL / ELEVATED / HIGH / EMERGENCY */
+.risk-badge {
+  padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 12px;
+  letter-spacing: 0.04em; white-space: nowrap;
+  background: var(--success-soft); color: var(--success-strong);
+  transition: background var(--t), color var(--t);
+}
+.risk-badge.elevated { background: var(--warning-soft); color: var(--warning-strong); animation: badgePulse 2.2s ease-in-out infinite; }
+.risk-badge.high { background: var(--orange-soft); color: var(--orange-strong); animation: badgePulse 1.7s ease-in-out infinite; }
+.risk-badge.emergency { background: var(--danger-soft); color: var(--danger-strong); animation: badgePulse 1s ease-in-out infinite; }
+@keyframes badgePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
+
+/* Connection indicator */
+.nav-conn { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.status-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+  transition: background var(--t), box-shadow var(--t);
+}
+.status-dot.connected { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+.status-dot.disconnected { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.conn-live { color: var(--success-strong); }
+.conn-offline { color: var(--danger-strong); }
+
+/* Plan badge (+ Upgrade): BASIC / PRO / PLUS */
+.navbar .plan-pill {
+  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+  border: 1px solid transparent; transition: filter var(--t);
+}
+.navbar .plan-pill:hover { filter: brightness(0.96); }
+.navbar .plan-basic { background: var(--basic-bg); color: var(--basic-text); border-color: var(--border); }
+.navbar .plan-pro { background: var(--primary-soft) var(--grad-pro); color: var(--pro-text); }
+.navbar .plan-plus { background: var(--purple-soft) var(--grad-plus); color: var(--plus-text); }
+.nav-upgrade {
+  margin-left: -8px; /* 8px from the badge inside the 16px-gap group */
+  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+  color: var(--primary-strong); border: 1px solid var(--primary);
+  transition: background var(--t);
+}
+.nav-upgrade:hover { background: var(--primary-soft); }
+.nav-upgrade[hidden] { display: none; }
+
+/* User menu */
+.nav-user { position: relative; }
+.nav-user-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px 4px 4px; border-radius: 999px;
+  background: transparent; border: 1px solid transparent; color: var(--text);
+  font: inherit; cursor: pointer; transition: background var(--t), border-color var(--t);
+}
+.nav-user-btn:hover, .nav-user-btn[aria-expanded="true"] { background: var(--surface-2); border-color: var(--border); }
+.nav-avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 32px; height: 32px; border-radius: 50%;
+  font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--on-primary); background: var(--primary-strong) var(--grad-primary);
+}
+.nav-user-name { font-size: 14px; font-weight: 500; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.nav-user-first { display: none; }
+.nav-chevron { color: var(--text-3); transition: transform var(--t); }
+.nav-user-btn[aria-expanded="true"] .nav-chevron { transform: rotate(180deg); }
+
+.nav-menu {
+  position: absolute; right: 0; top: calc(100% + 10px); width: 220px; z-index: 110;
+  padding: 6px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+.nav-menu[hidden] { display: none; }
+.nav-menu-head { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; min-width: 0; }
+.nav-menu-name { display: block; font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.nav-menu-email { display: block; font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; }
+.nav-menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
+.nav-menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border-radius: 8px;
+  font: inherit; font-size: 14px; text-align: left; color: var(--text);
+  background: none; border: 0; cursor: pointer; transition: background var(--t);
+}
+.nav-menu-item:hover, .nav-menu-item:focus-visible { background: var(--surface-2); }
+.nav-menu-danger { color: var(--danger-strong); }
+.nav-menu-danger:hover, .nav-menu-danger:focus-visible { background: var(--danger-soft); }
+.nav-signin { padding: 7px 16px; font-size: 13px; }
+/* Theme toggle: shows the moon in light mode, the sun in dark mode */
+.theme-icon-sun { display: none; }
+:root[data-theme="dark"] .theme-icon-sun { display: inline; }
+:root[data-theme="dark"] .theme-icon-moon { display: none; }
+
+/* Hamburger + mobile panel (shown < 900px) */
+.nav-burger {
+  display: none; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 10px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+}
+.nav-burger:hover { background: var(--surface-2); }
+.nav-panel { display: none; }
+
+/* ── Responsive ───────────────────────────────────────────── */
+/* Narrower desktops: step down cleanly instead of truncating —
+   first name only (< 1600, so a long full name never squeezes the
+   title), then the short brand title (< 1366, the width the full title
+   needs next to everything else). The title can still ellipsize as a
+   last resort, never overlap. */
+@media (max-width: 1599px) {
+  .navbar { column-gap: 24px; }
+  .nav-user-full { display: none; }
+  .nav-user-first { display: inline; max-width: 110px; }
+}
+@media (max-width: 1365px) {
+  .nav-link { padding: 8px 12px; }
+  .nav-title-full { display: none; }
+  .nav-title-short { display: block; }
+}
+@media (max-width: 1099px) {
+  .navbar { padding: 0 20px; column-gap: 20px; }
+  .nav-subtitle { display: none; }
+  .nav-title { font-size: 16px; }
+  .nav-links { gap: 4px; }
+  .nav-link { padding: 7px 10px; }
+}
+@media (max-width: 899px) {
+  .navbar { grid-template-columns: minmax(0, 1fr) auto; height: 60px; padding: 0 16px; column-gap: 12px; }
+  .nav-title-full, .nav-subtitle { display: none; }
+  .nav-title-short { display: block; }
+  .nav-logo svg { width: 24px; height: 24px; }
+  .nav-links, .nav-account, .nav-divider, .nav-status .nav-conn { display: none; }
+  .nav-right { gap: 10px; }
+  .nav-burger { display: inline-flex; }
+  .risk-badge { padding: 5px 12px; font-size: 11px; }
+
+  .nav-panel:not([hidden]) {
+    display: flex; flex-direction: column; gap: 6px;
+    position: absolute; left: 0; right: 0; top: 100%;
+    padding: 12px 16px 16px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    animation: navPanelIn 180ms ease-out;
+  }
+  .nav-panel-links { display: flex; flex-direction: column; gap: 2px; }
+  .nav-panel-links .nav-link { padding: 11px 12px; font-size: 15px; }
+  .nav-panel-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 12px; border-top: 1px solid var(--border); font-size: 14px;
+  }
+  .nav-panel-label { color: var(--text-2); font-size: 13px; }
+  .nav-panel-plan { display: flex; align-items: center; gap: 16px; }
+  .nav-panel-user { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .nav-panel-who { display: flex; align-items: center; gap: 10px; padding: 4px 12px 8px; min-width: 0; }
+  .nav-panel-who > span:last-child { min-width: 0; }
+  .nav-panel-user .nav-menu-item { padding: 11px 12px; font-size: 15px; }
+  .nav-panel-user .btn { align-self: flex-start; margin: 4px 12px 0; }
+}
+@keyframes navPanelIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .risk-badge, .nav-panel { animation: none !important; }
+}

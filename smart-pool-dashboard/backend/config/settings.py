@@ -111,10 +111,52 @@ def _parse_pool_polygon(raw: str):
 # (no ROI filtering), matching the previous behaviour.
 POOL_POLYGON = _parse_pool_polygon(os.getenv("POOL_POLYGON", ""))
 
+# ── Accounts & subscription plans ────────────────────────────
+# Each logged-in user's plan ("basic"/"pro"/"plus", see core/plans.py)
+# decides which features they get. DEMO_MODE=1 skips the login
+# requirement and falls back to ACTIVE_PLAN (CLI / offline demo).
+DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
+ACTIVE_PLAN = os.getenv("ACTIVE_PLAN", "plus")
+# ── Billing: PayHere recurring subscriptions (Pro / Plus, USD monthly) ─
+# Real values only in .env. Without merchant id + secret + PUBLIC_BASE_URL
+# the upgrade buttons say "Billing not configured — ask admin" (admins
+# can still set plans by hand on /admin/users).
+PAYHERE_MERCHANT_ID = os.getenv("PAYHERE_MERCHANT_ID", "").strip()
+PAYHERE_MERCHANT_SECRET = os.getenv("PAYHERE_MERCHANT_SECRET", "").strip()
+PAYHERE_SANDBOX = os.getenv("PAYHERE_SANDBOX", "1") == "1"
+PAYHERE_CHECKOUT_URL = (
+    "https://sandbox.payhere.lk/pay/checkout" if PAYHERE_SANDBOX
+    else "https://www.payhere.lk/pay/checkout"
+)
+# Public https base URL PayHere can reach for notify_url (e.g. ngrok).
+# Only notify_url uses it; return/cancel URLs use the host the user is on.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+# Where users normally open the dashboard (link shown when PayHere sends a
+# user back to a host they are not logged in on, e.g. the ngrok URL)
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:5000").strip().rstrip("/")
+BILLING_CONFIGURED = bool(PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET and PUBLIC_BASE_URL)
+# Optional PayHere "API key" (portal: Integrations -> API Keys, with the
+# Payment Retrieval permission). With it, pending orders are confirmed by
+# asking PayHere directly, so a lost notification can't leave them pending.
+PAYHERE_APP_ID = os.getenv("PAYHERE_APP_ID", "").strip()
+PAYHERE_APP_SECRET = os.getenv("PAYHERE_APP_SECRET", "").strip()
+PAYHERE_API_BASE = "https://sandbox.payhere.lk" if PAYHERE_SANDBOX else "https://www.payhere.lk"
+PAYHERE_RETRIEVAL_CONFIGURED = bool(PAYHERE_APP_ID and PAYHERE_APP_SECRET)
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "backend" / "data"))
+DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "app.db"))
+
 # ── Server ───────────────────────────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "5000"))
-SECRET_KEY = os.getenv("SECRET_KEY", "smart_pool_r26_it_143")
+# Signs the login session cookie — set a long random value in .env.
+# Without one, a random key is generated per run (everyone is logged
+# out on restart).
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+SECRET_KEY_GENERATED = not SECRET_KEY
+if SECRET_KEY_GENERATED:
+    import secrets
+
+    SECRET_KEY = secrets.token_hex(32)
 
 # Frame processing
 FRAME_WIDTH = int(os.getenv("FRAME_WIDTH", "640"))
