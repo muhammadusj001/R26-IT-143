@@ -9,14 +9,20 @@
   grid-template-columns: minmax(0, max-content) minmax(max-content, 1fr) max-content;
   column-gap: 32px;
   height: 68px; padding: 0 32px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface) var(--grad-nav);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--card-border);
   box-shadow: var(--shadow-sm);
 }
-/* Thin line under the bar that follows the overall risk (dashboard only) */
-.navbar:has(#overallRisk)::after {
-  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
-  background: var(--success);
+@supports (backdrop-filter: blur(10px)) {
+  .navbar { background: var(--grad-nav); }
+}
+/* Thin gradient accent line under the bar; on the dashboard it turns
+   solid amber / orange / red when the overall risk rises */
+.navbar::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;
+  background: var(--grad-accent-line);
 }
 .navbar:has(#overallRisk.elevated)::after { background: var(--warning); }
 .navbar:has(#overallRisk.high)::after { background: var(--orange); }
@@ -42,7 +48,7 @@
 /* ── Centre: links ────────────────────────────────────────── */
 .nav-links { display: flex; justify-content: center; align-items: center; gap: 8px; min-width: 0; }
 .nav-link {
-  padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 500;
   color: var(--text-2); white-space: nowrap;
   transition: background var(--t), color var(--t);
 }
@@ -86,9 +92,9 @@
   border: 1px solid transparent; transition: filter var(--t);
 }
 .navbar .plan-pill:hover { filter: brightness(0.96); }
-.navbar .plan-basic { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
-.navbar .plan-pro { background: var(--primary-soft); color: var(--primary-strong); }
-.navbar .plan-plus { background: var(--purple-soft); color: var(--purple-strong); }
+.navbar .plan-basic { background: var(--basic-bg); color: var(--basic-text); border-color: var(--border); }
+.navbar .plan-pro { background: var(--primary-soft) var(--grad-pro); color: var(--pro-text); }
+.navbar .plan-plus { background: var(--purple-soft) var(--grad-plus); color: var(--plus-text); }
 .nav-upgrade {
   margin-left: -8px; /* 8px from the badge inside the 16px-gap group */
   padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
@@ -111,7 +117,7 @@
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   width: 32px; height: 32px; border-radius: 50%;
   font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em;
-  color: var(--primary-strong); background: var(--primary-soft);
+  color: var(--on-primary); background: var(--primary-strong) var(--grad-primary);
 }
 .nav-user-name { font-size: 14px; font-weight: 500; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
 .nav-user-first { display: none; }

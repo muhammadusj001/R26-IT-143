@@ -16,9 +16,9 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
 
 /* Plan badges */
 .plan-pill { font-size: 11px; padding: 3px 11px; text-decoration: none; }
-.plan-basic { background: var(--surface-2); color: var(--text-2); border-color: var(--border); }
-.plan-pro   { background: var(--primary-soft); color: var(--primary-strong); border-color: transparent; }
-.plan-plus  { background: var(--purple-soft); color: var(--purple-strong); border-color: transparent; }
+.plan-basic { background: var(--basic-bg); color: var(--basic-text); border-color: var(--border); }
+.plan-pro   { background: var(--primary-soft) var(--grad-pro); color: var(--pro-text); border-color: transparent; }
+.plan-plus  { background: var(--purple-soft) var(--grad-plus); color: var(--plus-text); border-color: transparent; }
 .plan-none { display: none; }
 .admin-pill { font-size: 10px; padding: 2px 8px; background: var(--danger-soft); color: var(--danger-strong); }
 
@@ -28,6 +28,15 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
   padding: 56px 16px; gap: var(--gap-sm);
 }
 .auth-card { width: 100%; max-width: 420px; padding: 28px 28px 24px; }
+/* Sign in / register: soft blurred aqua + lilac blobs in the corners */
+.auth-entry .auth-main { position: relative; isolation: isolate; }
+.auth-entry::before, .auth-entry::after {
+  content: ""; position: fixed; z-index: -1; pointer-events: none;
+  width: 420px; height: 420px; border-radius: 50%; filter: blur(70px);
+}
+.auth-entry::before { top: 40px; left: -140px; background: var(--blob-aqua); }
+.auth-entry::after { bottom: -140px; right: -120px; background: var(--blob-lilac); }
+.auth-entry .auth-card { background: var(--surface); box-shadow: 0 16px 40px rgba(15, 23, 42, .08); }
 .auth-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
 .auth-sub { font-size: 13px; color: var(--text-2); margin-bottom: 20px; line-height: 1.5; }
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
@@ -43,7 +52,7 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
 }
 .auth-form input::placeholder { color: var(--text-placeholder); }
 .auth-form input:focus, .plan-form select:focus, .plan-form input:focus {
-  border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
+  border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-ring);
 }
 .auth-submit { margin-top: 6px; padding: 11px 18px; font-size: 14px; }
 .auth-switch { margin-top: 18px; font-size: 13px; color: var(--text-2); text-align: center; }
@@ -61,15 +70,15 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
 
 /* ── Tables (admin, payment history) ───────────────────────── */
 .admin-main { padding: var(--gap); max-width: 1200px; margin: 0 auto; }
-.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--card-border); border-radius: var(--radius-sm); }
 .users-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); }
 .users-table th {
   text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--text-3); background: var(--surface-2);
+  text-transform: uppercase; color: var(--text-3); background: var(--surface-2) var(--grad-thead);
   padding: 10px 12px; border-bottom: 1px solid var(--border);
 }
 .users-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
-.users-table tbody tr:hover td { background: var(--surface-2); }
+.users-table tbody tr:hover td { background: var(--row-hover); }
 .users-table tr:last-child td { border-bottom: 0; }
 .user-name { font-weight: 600; }
 .user-email { font-size: 12px; color: var(--text-2); }
@@ -104,9 +113,9 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
 .locked-text { font-size: 13px; font-weight: 600; color: var(--text); }
 .btn-upgrade {
   text-decoration: none; padding: 6px 16px; font-size: 12.5px;
-  color: var(--on-primary); background: var(--primary-strong); box-shadow: var(--shadow-sm);
+  color: var(--on-primary); background: var(--primary-strong) var(--grad-primary); box-shadow: var(--shadow-sm);
 }
-.btn-upgrade:hover { background: var(--primary-hover); }
+.btn-upgrade:hover { background: var(--primary-hover) var(--grad-primary-hover); box-shadow: var(--shadow-btn); }
 
 /* Generate Report locked on plans without "reports" */
 .report-lock { display: none; }
@@ -124,13 +133,18 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
 }
 @media (max-width: 860px) { .pricing-grid { grid-template-columns: minmax(0, 1fr); } }
 .price-card { position: relative; display: flex; flex-direction: column; padding: 26px 24px 22px; }
-.price-card.featured { border: 2px solid var(--primary); box-shadow: var(--shadow-md); }
+.price-card.featured {
+  border: 2px solid transparent;
+  background: var(--grad-card) padding-box, var(--grad-accent-line) border-box;
+  box-shadow: var(--shadow-card-hover);
+}
 .price-card.current:not(.featured) { border-color: var(--success); }
 .price-badge {
   position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
   padding: 3px 12px; border-radius: 999px; white-space: nowrap;
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--on-primary); background: var(--primary-strong);
+  color: var(--on-primary); background: var(--primary-strong) var(--grad-primary);
+  box-shadow: var(--shadow-btn);
 }
 .price-name { font-size: 15px; font-weight: 600; color: var(--text-2); letter-spacing: 0.02em; }
 .price-amount { font-size: 34px; font-weight: 800; margin: 6px 0 18px; letter-spacing: -0.02em; color: var(--text); }
@@ -179,7 +193,7 @@ a.btn-primary { text-decoration: none; display: inline-flex; align-items: center
   background: var(--surface-2);
 }
 .pay-progress span {
-  display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--primary);
+  display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--primary) var(--grad-accent-line);
   animation: pay-slide 1.4s ease-in-out infinite;
 }
 @keyframes pay-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
