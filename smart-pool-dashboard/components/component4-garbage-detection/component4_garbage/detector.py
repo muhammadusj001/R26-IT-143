@@ -71,7 +71,7 @@ class GarbageDetector:
         self.show_hud = config.SHOW_HUD if show_hud is None else show_hud
         self.model_path = Path(model_path) if model_path else config.GARBAGE_MODEL_PATH
         self.conf_threshold = conf_threshold if conf_threshold is not None else config.CONF
-        # The dashboard passes DETECTION_IMGSZ (480) to every detector. Floating
+        # The dashboard passes DETECTION_IMGSZ (640) to every detector. Floating
         # garbage is small, so Component 4 never goes below 640 unless C4_IMGSZ
         # is set explicitly.
         if os.environ.get("C4_IMGSZ"):

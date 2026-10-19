@@ -144,14 +144,20 @@ def check_crowd_model_files():
     s = app.settings
     lines = []
     configured = s.CROWD_MODEL_PATH
-    assert configured.exists(), f"configured CROWD_MODEL_PATH missing: {configured}"
-    lines.append(f"configured (best_swimmer_model.pt): {configured} — {_size_mb(configured)}")
-
-    yolo11 = configured.parent / "yolo11m.pt"
-    if yolo11.exists():
-        lines.append(f"yolo11m.pt (stock COCO alt.): {yolo11} — {_size_mb(yolo11)}")
+    if configured.exists():
+        lines.append(f"configured: {configured} — {_size_mb(configured)}")
     else:
-        lines.append("yolo11m.pt: not present (optional stock-COCO alternative model)")
+        from component1_crowd.detector import _is_stock_model
+        assert _is_stock_model(configured.name), \
+            f"configured CROWD_MODEL_PATH missing: {configured}"
+        lines.append(f"configured: {configured} — not downloaded yet "
+                     f"(auto-downloads on first app start)")
+
+    fallback = configured.parent / "best_swimmer_model.pt"
+    if fallback.exists():
+        lines.append(f"best_swimmer_model.pt (fallback): {fallback} — {_size_mb(fallback)}")
+    else:
+        lines.append("best_swimmer_model.pt: not present (optional fallback model)")
     return "\n".join(lines)
 
 

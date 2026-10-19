@@ -28,9 +28,12 @@ from swimmer_count / bather load / density. With no polygon configured,
 behaviour is unchanged (everyone detected counts, as before).
 """
 
+import fnmatch
 import random
+import shutil
 import time
 from collections import deque
+from pathlib import Path
 from statistics import median
 
 import cv2
@@ -59,6 +62,15 @@ DEFAULT_POOL_AREA_M2 = 250.0      # e.g. a 25m x 10m pool
 DEFAULT_AREA_PER_BATHER_M2 = 2.7
 DENSITY_MODERATE_PCT = 0.50       # 50% of capacity
 DENSITY_HIGH_PCT = 0.80           # 80% of capacity
+
+# Standard Ultralytics weights that YOLO() can auto-download by name.
+STOCK_MODEL_PATTERNS = ("yolo11*.pt", "yolov8*.pt")
+# Used only if the configured model is missing and can't be downloaded.
+FALLBACK_MODEL_NAME = "best_swimmer_model.pt"
+
+
+def _is_stock_model(name):
+    return any(fnmatch.fnmatch(name.lower(), pat) for pat in STOCK_MODEL_PATTERNS)
 
 
 class CrowdDetector:
@@ -99,26 +111,70 @@ class CrowdDetector:
 
     # ── Loading ──────────────────────────────────────────────
     def load(self):
-        if self.model_path is None or not self.model_path.exists():
+        if self.model_path is None:
             self.model_status = "simulation"
             return False
+        model_path = Path(self.model_path)
         try:
             from ultralytics import YOLO
 
-            self.model = YOLO(str(self.model_path))
-            # A COCO model has 80 classes with "person" at index 0.
-            names = self.model.names
-            self.is_coco_model = (
-                len(names) > 10 and str(names.get(0, "")).lower() == "person"
-            )
-            mode = "COCO/person" if self.is_coco_model else "custom/swimmer"
-            self.model_status = "loaded"
-            print(f"  Crowd model: {self.model_path.name} — {mode} mode, "
-                  f"{len(names)} class(es)")
-            return True
+            if model_path.exists():
+                self.model = YOLO(str(model_path))
+            elif _is_stock_model(model_path.name):
+                self.model = self._download_stock_model(YOLO, model_path)
+            else:
+                raise FileNotFoundError(f"model file not found: {model_path}")
         except Exception as exc:  # noqa: BLE001
-            self.model_status = f"error: {exc}"
-            return False
+            fallback = model_path.parent / FALLBACK_MODEL_NAME
+            print(f"  WARNING: crowd model {model_path.name} unavailable ({exc})")
+            if fallback == model_path or not fallback.exists():
+                print("  WARNING: no fallback crowd model — running in simulation mode")
+                self.model = None
+                self.model_status = "simulation"
+                return False
+            print(f"  WARNING: falling back to {fallback.name}")
+            try:
+                self.model = YOLO(str(fallback))
+                model_path = fallback
+            except Exception as fb_exc:  # noqa: BLE001
+                self.model = None
+                self.model_status = f"error: {fb_exc}"
+                return False
+
+        # A COCO model has 80 classes with "person" at index 0.
+        names = self.model.names
+        self.is_coco_model = (
+            len(names) > 10 and str(names.get(0, "")).lower() == "person"
+        )
+        mode = "COCO/person" if self.is_coco_model else "custom/swimmer"
+        self.model_status = "loaded"
+        print(f"  Crowd model: {model_path.name} — {mode} mode, "
+              f"conf={self.conf_threshold}, imgsz={self.imgsz}")
+        return True
+
+    @staticmethod
+    def _download_stock_model(YOLO, target):
+        """Load a standard Ultralytics model by bare name (auto-downloads
+        it on first use), then cache it at `target` for next time."""
+        print(f"  Crowd model {target.name} not found — downloading it "
+              f"(first run only, needs internet)...")
+        # Ultralytics downloads bare names into the current directory.
+        cwd_copy = Path.cwd() / target.name
+        had_cwd_copy = cwd_copy.exists()
+        model = YOLO(target.name)
+        source = Path(model.ckpt_path or cwd_copy).resolve()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source != target.resolve():
+                if source == cwd_copy.resolve() and not had_cwd_copy:
+                    shutil.move(str(source), target)
+                else:
+                    shutil.copy2(source, target)
+            print(f"  Saved crowd model to {target}")
+        except OSError as exc:
+            print(f"  WARNING: could not save {target.name} to {target.parent} ({exc}); "
+                  f"it will be downloaded again next run")
+        return model
 
     # ── Density / maintenance rules (capacity-based) ──────────
     def density_level(self, count: int) -> str:
