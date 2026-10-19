@@ -164,6 +164,26 @@ def create_payment(user_id, order_id, plan, amount, currency):
         )
 
 
+def abandon_pending_orders(user_id):
+    """A new checkout supersedes the user's older unpaid orders. (A late
+    payment for an abandoned order is still honoured by notify/verify.)"""
+    with connect() as conn:
+        return conn.execute(
+            "UPDATE payments SET status = 'abandoned', updated_at = ? "
+            "WHERE user_id = ? AND status = 'pending'", (now(), user_id),
+        ).rowcount
+
+
+def list_open_orders(limit=50):
+    """Checkout rows still waiting for PayHere (admin page)."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT p.*, u.email FROM payments p JOIN users u ON u.id = p.user_id "
+            "WHERE p.status IN ('pending', 'abandoned') AND p.payhere_payment_id IS NULL "
+            "ORDER BY p.id DESC LIMIT ?", (limit,),
+        ).fetchall()
+
+
 def get_order(order_id):
     """The checkout row for an order (the first payment with that order_id)."""
     with connect() as conn:

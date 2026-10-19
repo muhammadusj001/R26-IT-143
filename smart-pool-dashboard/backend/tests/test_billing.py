@@ -8,6 +8,7 @@ Uses a throwaway SQLite database and dummy PayHere credentials; nothing
 is sent to PayHere.
 """
 
+import base64
 import hashlib
 import os
 import re
@@ -28,7 +29,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 
 import app as A  # noqa: E402
 from config import settings  # noqa: E402
-from core import db  # noqa: E402
+from core import billing, db, payhere_api  # noqa: E402
 from core.payhere import checkout_hash, format_amount, notify_signature  # noqa: E402
 
 MERCHANT_ID = "1211149"
@@ -80,6 +81,11 @@ class BillingFlowTests(unittest.TestCase):
 
     def setUp(self):
         settings.BILLING_CONFIGURED = True
+        settings.PAYHERE_SANDBOX = True
+        settings.PAYHERE_APP_ID = settings.PAYHERE_APP_SECRET = ""
+        settings.PAYHERE_RETRIEVAL_CONFIGURED = False
+        payhere_api._token["value"] = None
+        billing._last_verify.clear()
         BillingFlowTests._n += 1
         self.email = f"user{self._n}@example.com"
         self.user_id = db.create_user("Nimal Perera", self.email, generate_password_hash("secret123"))
@@ -178,7 +184,8 @@ class BillingFlowTests(unittest.TestCase):
     def test_bad_signature_rejected(self):
         _, f = self.checkout("pro")
         r = self.notify(f["order_id"], md5sig="0" * 32)
-        self.assertEqual(r.status_code, 400)
+        # acknowledged (always 200) but ignored
+        self.assertEqual((r.status_code, r.data), (200, b"rejected: bad signature or merchant id"))
         self.assertEqual(self.user()["plan"], "basic")
         self.assertEqual(self.payments()[0]["status"], "pending")
         log = self.notifications(f["order_id"])
@@ -188,13 +195,15 @@ class BillingFlowTests(unittest.TestCase):
         _, f = self.checkout("pro")
         sig = notify_signature("999999", f["order_id"], "15.00", "USD", "2", SECRET)
         r = self.notify(f["order_id"], merchant_id="999999", md5sig=sig)
-        self.assertEqual(r.status_code, 400)
+        self.assertIn(b"rejected", r.data)
         self.assertEqual(self.user()["plan"], "basic")
 
     def test_amount_or_currency_mismatch_rejected(self):
         _, f = self.checkout("plus")
-        self.assertEqual(self.notify(f["order_id"], amount="15.00").status_code, 400)  # Pro price for Plus
-        self.assertEqual(self.notify(f["order_id"], currency="LKR").status_code, 400)
+        self.assertEqual(self.notify(f["order_id"], amount="15.00").data,  # Pro price for Plus
+                         b"rejected: amount/currency mismatch")
+        self.assertEqual(self.notify(f["order_id"], currency="LKR").data,
+                         b"rejected: amount/currency mismatch")
         self.assertEqual(self.user()["plan"], "basic")
         self.assertEqual(self.payments()[0]["status"], "pending")
 
@@ -202,7 +211,8 @@ class BillingFlowTests(unittest.TestCase):
         form = {"merchant_id": MERCHANT_ID, "order_id": "NOPE", "payhere_amount": "15.00",
                 "payhere_currency": "USD", "status_code": "2",
                 "md5sig": notify_signature(MERCHANT_ID, "NOPE", "15.00", "USD", "2", SECRET)}
-        self.assertEqual(A.app.test_client().post("/billing/notify", data=form).status_code, 400)
+        r = A.app.test_client().post("/billing/notify", data=form)
+        self.assertEqual((r.status_code, r.data), (200, b"rejected: unknown order"))
 
     def test_duplicate_notification_processed_once(self):
         _, f = self.checkout("pro")
@@ -362,6 +372,184 @@ class BillingFlowTests(unittest.TestCase):
 
     def test_api_me_requires_login(self):
         self.assertEqual(A.app.test_client().get("/api/me").status_code, 401)
+
+    # ── notify reachability ──────────────────────────────────
+    def test_notify_without_session_from_any_host_no_redirect(self):
+        for base in ("https://abrasion-grafting-oxford.ngrok-free.dev", "http://127.0.0.1:5000"):
+            with self.subTest(base=base):
+                _, f = self.checkout("pro")
+                order = db.get_order(f["order_id"])
+                form = {"merchant_id": MERCHANT_ID, "order_id": f["order_id"],
+                        "payment_id": f"{self.user_id}{len(base)}", "payhere_amount": "15.00",
+                        "payhere_currency": "USD", "status_code": "2", "subscription_id": "S1",
+                        "md5sig": notify_signature(MERCHANT_ID, f["order_id"], order["amount"],
+                                                   "USD", "2", SECRET)}
+                r = A.app.test_client().post("/billing/notify", data=form, base_url=base)
+                self.assertEqual(r.status_code, 200)
+                self.assertNotIn("Location", r.headers)
+                self.assertEqual(db.get_order(f["order_id"])["status"], "paid")
+                db.update_user(self.user_id, plan="basic", subscription_id=None)
+
+    def test_notify_answers_200_even_on_internal_error(self):
+        _, f = self.checkout("pro")
+        original = billing._apply
+        billing._apply = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            with self.assertLogs("billing", "ERROR"):
+                r = self.notify(f["order_id"])
+        finally:
+            billing._apply = original
+        self.assertEqual((r.status_code, r.data), (200, b"error: see server log"))
+
+    # ── Retrieval API verification ───────────────────────────
+    def enable_retrieval(self):
+        settings.PAYHERE_APP_ID, settings.PAYHERE_APP_SECRET = "4OVx", "app-secret-xyz"
+        settings.PAYHERE_RETRIEVAL_CONFIGURED = True
+
+    class FakeHttp:
+        """Stands in for `requests`: records calls, answers like PayHere."""
+        def __init__(self, payments, search_status=1):
+            self.calls, self.payments, self.search_status = [], payments, search_status
+
+        class Resp:
+            def __init__(self, body, code=200):
+                self.status_code, self._body = code, body
+
+            def json(self):
+                return self._body
+
+        def post(self, url, headers=None, data=None, timeout=None):
+            self.calls.append(("POST", url, headers, data))
+            return self.Resp({"access_token": "tok-123", "token_type": "bearer", "expires_in": 599})
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.calls.append(("GET", url, headers, params))
+            if self.search_status == -1:
+                return self.Resp({"status": -1, "msg": "No payments found", "data": None})
+            return self.Resp({"status": 1, "msg": "ok", "data": self.payments})
+
+    def received(self, order_id, **over):
+        p = {"payment_id": int(f"{self.user_id}320025"), "order_id": order_id,
+             "date": "2026-10-19 10:15:00", "status": "RECEIVED", "currency": "USD", "amount": 15}
+        p.update(over)
+        return p
+
+    def test_verify_order_with_mocked_retrieval_api_upgrades(self):
+        self.enable_retrieval()
+        _, f = self.checkout("pro")
+        http = self.FakeHttp([self.received(f["order_id"])])
+        status, detail = billing.verify_order(f["order_id"], http=http)
+        self.assertEqual(status, "paid", detail)
+        # OAuth: Basic base64(app_id:app_secret) + client_credentials, then Bearer search
+        (m1, url1, h1, d1), (m2, url2, h2, p2) = http.calls
+        self.assertEqual((m1, url1), ("POST", "https://sandbox.payhere.lk/merchant/v1/oauth/token"))
+        self.assertEqual(h1["Authorization"], "Basic " + base64.b64encode(b"4OVx:app-secret-xyz").decode())
+        self.assertEqual(d1, {"grant_type": "client_credentials"})
+        self.assertEqual((m2, url2, p2), ("GET", "https://sandbox.payhere.lk/merchant/v1/payment/search",
+                                          {"order_id": f["order_id"]}))
+        self.assertEqual(h2["Authorization"], "Bearer tok-123")
+        u = self.user()
+        self.assertEqual((u["plan"], u["plan_status"], u["plan_renews_at"]), ("pro", "active", "2026-11-19"))
+        p = self.payments()[0]
+        self.assertEqual((p["status"], p["payhere_payment_id"]), ("paid", f"{self.user_id}320025"))
+        # PayHere's late notify for the same payment: no second charge row, adds the subscription id
+        self.assertEqual(self.notify(f["order_id"]).status_code, 200)
+        self.assertEqual(len(self.payments()), 1)
+        self.assertEqual(self.user()["subscription_id"], "420075")
+
+    def test_verify_order_rejects_wrong_amount_currency_or_status(self):
+        self.enable_retrieval()
+        _, f = self.checkout("pro")
+        for bad in (self.received(f["order_id"], amount=25),
+                    self.received(f["order_id"], currency="LKR", amount=15),
+                    self.received(f["order_id"], status="REFUNDED")):
+            with self.subTest(bad=bad):
+                status, _ = billing.verify_order(f["order_id"], force=True, http=self.FakeHttp([bad]))
+                self.assertEqual(status, "pending")
+        status, detail = billing.verify_order(f["order_id"], force=True,
+                                              http=self.FakeHttp([], search_status=-1))
+        self.assertEqual((status, detail.startswith("0 payment")), ("pending", True))
+        self.assertEqual(self.user()["plan"], "basic")
+
+    def test_verify_order_without_api_key_does_nothing(self):
+        _, f = self.checkout("pro")
+        http = self.FakeHttp([self.received(f["order_id"])])
+        self.assertEqual(billing.verify_order(f["order_id"], http=http),
+                         ("pending", "retrieval API not configured"))
+        self.assertEqual(http.calls, [])
+
+    def test_status_endpoint_verifies_pending_order_at_most_every_3s(self):
+        self.enable_retrieval()
+        _, f = self.checkout("pro")
+        calls = []
+        original = payhere_api.search_payments
+        payhere_api.search_payments = lambda order_id, **kw: calls.append(order_id) or []
+        try:
+            for _ in range(3):
+                self.assertEqual(A.app.test_client().get(f"/billing/status/{f['order_id']}").get_json()["status"],
+                                 "pending")
+            self.assertEqual(len(calls), 1)  # throttled
+            billing._last_verify.clear()
+            payhere_api.search_payments = lambda order_id, **kw: [self.received(order_id)]
+            status = A.app.test_client().get(f"/billing/status/{f['order_id']}").get_json()
+        finally:
+            payhere_api.search_payments = original
+        self.assertEqual((status["status"], status["plan"]), ("paid", "pro"))
+        self.assertEqual(self.user()["plan"], "pro")
+
+    # ── account / admin ──────────────────────────────────────
+    def test_new_checkout_abandons_old_pending_but_late_payment_counts(self):
+        _, first = self.checkout("pro")
+        _, second = self.checkout("pro")
+        self.assertEqual(db.get_order(first["order_id"])["status"], "abandoned")
+        self.assertEqual(db.get_order(second["order_id"])["status"], "pending")
+        self.assertIn("ABANDONED", self.web.get("/account").get_data(as_text=True))
+        self.notify(first["order_id"])  # the user did pay the first one after all
+        self.assertEqual((db.get_order(first["order_id"])["status"], self.user()["plan"]), ("paid", "pro"))
+
+    def test_check_status_button(self):
+        self.enable_retrieval()
+        _, f = self.checkout("plus")
+        page = self.web.get("/account").get_data(as_text=True)
+        self.assertIn(f'/billing/check/{f["order_id"]}', page)
+        token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+        original = payhere_api.search_payments
+        payhere_api.search_payments = lambda order_id, **kw: [self.received(order_id, amount="25.00")]
+        try:
+            r = self.web.post(f"/billing/check/{f['order_id']}", data={"csrf": token}, follow_redirects=True)
+        finally:
+            payhere_api.search_payments = original
+        self.assertIn("Payment confirmed", r.get_data(as_text=True))
+        self.assertEqual(self.user()["plan"], "plus")
+        self.assertNotIn("Check status", self.web.get("/account").get_data(as_text=True))
+
+    def admin_client(self):
+        email = f"admin{self._n}@example.com"
+        db.create_user("Admin", email, generate_password_hash("adminpass1"), is_admin=True)
+        client = A.app.test_client()
+        page = client.get("/login").get_data(as_text=True)
+        token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+        client.post("/login", data={"csrf": token, "email": email, "password": "adminpass1", "next": "/"})
+        return client
+
+    def test_simulate_confirmation_sandbox_only(self):
+        _, f = self.checkout("pro")
+        admin = self.admin_client()
+        page = admin.get("/admin/users").get_data(as_text=True)
+        self.assertIn(f["order_id"], page)
+        self.assertIn("Simulate confirmation", page)
+        token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+        r = admin.post(f"/admin/payments/{f['order_id']}/simulate", data={"csrf": token}, follow_redirects=True)
+        self.assertIn("paid: user", r.get_data(as_text=True))
+        self.assertEqual((db.get_order(f["order_id"])["status"], self.user()["plan"]), ("paid", "pro"))
+        # not available on live
+        settings.PAYHERE_SANDBOX = False
+        self.assertNotIn("Simulate confirmation", admin.get("/admin/users").get_data(as_text=True))
+        self.assertEqual(admin.post(f"/admin/payments/{f['order_id']}/simulate",
+                                    data={"csrf": token}).status_code, 404)
+        # and a normal user can't use it
+        self.assertEqual(self.web.post(f"/admin/payments/{f['order_id']}/simulate",
+                                       data={"csrf": token}).status_code, 403)
 
 
 if __name__ == "__main__":

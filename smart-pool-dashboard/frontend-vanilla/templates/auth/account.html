@@ -35,15 +35,23 @@
   {% if payments %}
   <div class="table-wrap">
     <table class="users-table payments-table">
-      <thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Status</th><th>Order</th></tr></thead>
+      <thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Status</th><th>Order</th><th></th></tr></thead>
       <tbody>
       {% for p in payments %}
         <tr>
           <td class="mono">{{ p['created_at'][:10] }}</td>
           <td>{{ plans[p['plan']].name if p['plan'] in plans else p['plan'] }}</td>
           <td class="mono">{{ p['currency'] }} {{ p['amount'] }}</td>
-          <td><span class="pill {{ {'paid': 'safe', 'pending': 'warn'}.get(p['status'], 'danger') }}">{{ p['status']|upper }}</span></td>
+          <td><span class="pill {{ {'paid': 'safe', 'pending': 'warn', 'abandoned': ''}.get(p['status'], 'danger') }}">{{ p['status']|upper }}</span></td>
           <td class="mono">{{ p['order_id'] }}</td>
+          <td>
+            {% if p['status'] == 'pending' %}
+            <form method="post" action="{{ url_for('billing.check_order', order_id=p['order_id']) }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-ghost btn-small">Check status</button>
+            </form>
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>

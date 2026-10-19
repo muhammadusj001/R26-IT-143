@@ -47,4 +47,40 @@
     </table>
   </div>
 </section>
+
+<section class="card admin-orders">
+  <div class="card-header">
+    <h2>Orders waiting for PayHere <span class="sub">({{ open_orders|length }})</span></h2>
+  </div>
+  {% if open_orders %}
+  <div class="table-wrap">
+    <table class="users-table">
+      <thead><tr><th>Order</th><th>User</th><th>Plan</th><th>Amount</th><th>Status</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {% for o in open_orders %}
+        <tr>
+          <td class="mono">{{ o['order_id'] }}</td>
+          <td class="user-email">{{ o['email'] }}</td>
+          <td>{{ plans[o['plan']].name }}</td>
+          <td class="mono">{{ o['currency'] }} {{ o['amount'] }}</td>
+          <td><span class="pill {{ 'warn' if o['status'] == 'pending' else '' }}">{{ o['status']|upper }}</span></td>
+          <td class="mono">{{ o['created_at'][:16] }}</td>
+          <td>
+            {% if payhere_sandbox %}
+            <form method="post" action="{{ url_for('billing.simulate_confirmation', order_id=o['order_id']) }}"
+                  onsubmit="return confirm('Simulate a successful PayHere payment for {{ o['order_id'] }}? The user gets {{ plans[o['plan']].name }}.')">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-ghost" title="Sandbox only: sends a correctly signed success notification through the real notify handler">Simulate confirmation</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="auth-sub">No open orders.</p>
+  {% endif %}
+</section>
 {% endblock %}

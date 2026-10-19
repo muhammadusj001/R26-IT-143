@@ -216,7 +216,8 @@ def select_basic():
 @admin_required
 def admin_users():
     users = [dict(u, effective_plan=db.effective_plan(u)) for u in db.list_users()]
-    return render_template("auth/admin_users.html", users=users, statuses=db.PLAN_STATUSES)
+    return render_template("auth/admin_users.html", users=users, statuses=db.PLAN_STATUSES,
+                           open_orders=db.list_open_orders())
 
 
 @bp.route("/admin/users/<int:user_id>/plan", methods=["POST"])

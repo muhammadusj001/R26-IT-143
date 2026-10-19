@@ -29,9 +29,10 @@
   <!-- waiting for PayHere's notification -->
   <div class="pay-state" id="payWaiting">
     <div class="pay-spinner" aria-hidden="true"></div>
-    <h2 class="auth-title">Payment received — activating your {{ plan.name }} plan…</h2>
-    <p class="auth-sub">Waiting for PayHere to confirm order <span class="mono">{{ order['order_id'] }}</span>.
-      This usually takes a few seconds.</p>
+    <h2 class="auth-title">Confirming payment…</h2>
+    <p class="auth-sub">Payment received — activating your {{ plan.name }} plan.
+      Waiting for PayHere to confirm order <span class="mono">{{ order['order_id'] }}</span>;
+      this usually takes a few seconds.</p>
   </div>
 
   <!-- paid -->
@@ -52,7 +53,7 @@
       <a class="btn btn-start" href="{{ dash_url }}">Go to Dashboard</a>
       <a class="btn btn-ghost" href="{{ account_url }}">View Account</a>
     </div>
-    <p class="pay-redirect" id="payRedirect">Opening the dashboard in <b id="payCountdown">5</b> s…</p>
+    <p class="pay-redirect" id="payRedirect">Opening the dashboard in <b id="payCountdown">4</b> s…</p>
     {% else %}
     <p class="auth-sub pay-elsewhere">You're not signed in on this address. Open the dashboard where you
       normally sign in — your new plan is already active there.</p>
@@ -62,16 +63,16 @@
     {% endif %}
   </div>
 
-  <!-- still pending after 60 s -->
+  <!-- still pending after 45 s -->
   <div class="pay-state" id="paySlow" hidden>
     <div class="pay-icon pay-icon-warn">
       <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
     </div>
-    <h2 class="auth-title">Payment is being confirmed</h2>
+    <h2 class="auth-title">Still confirming</h2>
     <p class="auth-sub">PayHere hasn't confirmed order <span class="mono">{{ order['order_id'] }}</span> yet.
-      Refresh in a minute — your plan switches to {{ plan.name }} automatically once it does.</p>
+      Your plan switches to {{ plan.name }} automatically once it does — check again in a moment.</p>
     <div class="account-actions pay-actions">
-      <a class="btn btn-start" href="">Refresh</a>
+      <button type="button" class="btn btn-start" id="payCheckAgain">Check again</button>
       <a class="btn btn-ghost" href="{{ account_url }}">View Account</a>
     </div>
   </div>
@@ -92,13 +93,20 @@
 </section>
 
 <script>
-// The plan is only changed by PayHere's verified notification, so poll
-// the order status until it is paid, failed, or 60 s have passed.
+// The plan only changes once PayHere confirmed the payment (notify or the
+// Retrieval API, which /billing/status consults), so poll every 2 s until
+// it is paid or failed; after 45 s offer "Check again" instead of spinning.
 (function () {
   const card = document.getElementById('payCard');
   const orderId = card.dataset.orderId;
   const isOwner = card.dataset.owner === '1';
-  const started = Date.now();
+  const GIVE_UP_MS = 45000;
+  let started = Date.now();
+  document.getElementById('payCheckAgain').addEventListener('click', () => {
+    started = Date.now();
+    show('payWaiting');
+    poll();
+  });
   const show = (id) => {
     for (const el of card.querySelectorAll('.pay-state')) el.hidden = el.id !== id;
   };
@@ -115,7 +123,7 @@
       badge.textContent = info.plan_name.toUpperCase();
       badge.className = 'pill plan-pill js-plan-badge plan-' + info.plan;
     }
-    let left = 5;
+    let left = 4;
     const countdown = document.getElementById('payCountdown');
     const timer = setInterval(() => {
       left -= 1;
@@ -136,7 +144,7 @@
         }
       }
     } catch (e) { /* network blip — keep polling */ }
-    if (Date.now() - started >= 60000) return show('paySlow');
+    if (Date.now() - started >= GIVE_UP_MS) return show('paySlow');
     setTimeout(poll, 2000);
   }
   poll();

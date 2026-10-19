@@ -171,7 +171,11 @@
   background: rgba(255, 255, 255, 0.04); border: 1px dashed var(--border-strong);
 }
 .price-unavailable:hover { transform: none; }
-.payments-card { max-width: 640px; }
+.payments-card { max-width: 720px; }
+.payments-table form, .admin-orders form { margin: 0; }
+.btn-small { padding: 4px 10px; font-size: 11.5px; }
+.admin-orders { margin-top: var(--gap); }
+.admin-orders .btn { padding: 5px 12px; font-size: 12px; }
 .payments-table td { padding: 9px 10px; }
 .pay-progress {
   height: 4px; border-radius: 999px; overflow: hidden; margin-bottom: 20px;

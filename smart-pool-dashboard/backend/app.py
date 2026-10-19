@@ -78,7 +78,7 @@ def _redirect_127_to_localhost():
     and drop its body. Socket.IO traffic is left alone."""
     hostname, sep, port = request.host.partition(":")
     if hostname != "127.0.0.1" or request.method not in ("GET", "HEAD") \
-            or request.path.startswith("/socket.io"):
+            or request.path.startswith(("/socket.io", "/billing/notify")):
         return None
     target = f"{request.scheme}://localhost{sep}{port}{request.path}"
     if request.query_string:

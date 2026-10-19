@@ -135,6 +135,13 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
 # user back to a host they are not logged in on, e.g. the ngrok URL)
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:5000").strip().rstrip("/")
 BILLING_CONFIGURED = bool(PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET and PUBLIC_BASE_URL)
+# Optional PayHere "API key" (portal: Integrations -> API Keys, with the
+# Payment Retrieval permission). With it, pending orders are confirmed by
+# asking PayHere directly, so a lost notification can't leave them pending.
+PAYHERE_APP_ID = os.getenv("PAYHERE_APP_ID", "").strip()
+PAYHERE_APP_SECRET = os.getenv("PAYHERE_APP_SECRET", "").strip()
+PAYHERE_API_BASE = "https://sandbox.payhere.lk" if PAYHERE_SANDBOX else "https://www.payhere.lk"
+PAYHERE_RETRIEVAL_CONFIGURED = bool(PAYHERE_APP_ID and PAYHERE_APP_SECRET)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "backend" / "data"))
 DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "app.db"))
 
