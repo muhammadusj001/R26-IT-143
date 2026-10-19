@@ -169,8 +169,45 @@ const PLAN_LOCKS = {
   drowning: 'drowningCard', garbage: 'garbageCard',
   decision_engine: 'decisionCard', reports: 'reportBtn',
 };
+// ── One-time "plan upgraded" toast ─────────────────────────
+// Remembers the last plan this browser saw per user; when the plan now
+// unlocks features the old one didn't, says so once.
+const AG = window.AQUAGUARD || {};
+const PLAN_SEEN_KEY = 'aquaguard.lastPlan.' + AG.viewer;
+function readSeenPlan() {
+  try { return localStorage.getItem(PLAN_SEEN_KEY); } catch (e) { return null; }
+}
+function rememberPlan(key) {
+  try { localStorage.setItem(PLAN_SEEN_KEY, key); } catch (e) { /* storage blocked */ }
+}
+function joinWords(words) {
+  return words.length < 2 ? words.join('')
+    : words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1];
+}
+function checkPlanUpgrade(newKey) {
+  if (!newKey || !AG.plans || !AG.plans[newKey]) return;
+  const oldKey = readSeenPlan();
+  rememberPlan(newKey);
+  if (!oldKey || oldKey === newKey || !AG.plans[oldKey]) return;  // first visit / no change
+  const gained = AG.plans[newKey].features.filter(f => !AG.plans[oldKey].features.includes(f));
+  if (!gained.length) return;  // downgrade
+  const words = gained.map(f => (AG.featureShort && AG.featureShort[f]) || f);
+  showPlanToast('Your plan is now ' + AG.plans[newKey].name.toUpperCase() + ' — '
+    + joinWords(words) + ' unlocked.');
+}
+let planToastTimer;
+function showPlanToast(text) {
+  document.getElementById('planToastText').textContent = text;
+  document.getElementById('planToast').hidden = false;
+  clearTimeout(planToastTimer);
+  planToastTimer = setTimeout(hidePlanToast, 9000);
+}
+function hidePlanToast() { document.getElementById('planToast').hidden = true; }
+checkPlanUpgrade(AG.plan);
+
 function applyPlan(plan) {
   if (!plan || !plan.features) return;
+  checkPlanUpgrade(plan.key);  // plan changed while the dashboard is open
   const badge = document.getElementById('planBadge');
   badge.textContent = plan.name.toUpperCase();
   badge.className = 'pill plan-pill plan-' + plan.key;

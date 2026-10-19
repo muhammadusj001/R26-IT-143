@@ -3,7 +3,7 @@
 {# (index.html writes its #planBadge out in full so system_check can find the id) #}
 {% macro plan_badge(plan_key) -%}
 <a href="{{ url_for('auth.account') if current_user else url_for('auth.pricing') }}"
-   class="pill plan-pill plan-{{ plan_key or 'none' }}"
+   class="pill plan-pill js-plan-badge plan-{{ plan_key or 'none' }}"
    title="Your plan">{{ (plans[plan_key].name if plan_key in plans else '–')|upper }}</a>
 {%- endmacro %}
 

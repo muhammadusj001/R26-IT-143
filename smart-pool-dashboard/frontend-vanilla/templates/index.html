@@ -188,6 +188,23 @@
   </div>
 </div>
 
+<div class="toast" id="planToast" role="status" aria-live="polite" hidden>
+  <span class="toast-icon" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+  </span>
+  <span id="planToastText"></span>
+  <button class="toast-close" onclick="hidePlanToast()" aria-label="Dismiss">&times;</button>
+</div>
+
+<script>
+  // Plan data for the one-time "plan upgraded" toast (dashboard.js)
+  window.AQUAGUARD = {{ {
+    "viewer": current_user['id'] if current_user else 'demo',
+    "plan": current_plan,
+    "plans": plans,
+    "featureShort": feature_short,
+  }|tojson }};
+</script>
 <script src="/static/js/dashboard.js"></script>
 </body>
 </html>

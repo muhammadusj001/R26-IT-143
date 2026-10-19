@@ -133,9 +133,10 @@ class BillingFlowTests(unittest.TestCase):
         self.assertNotIn(SECRET, html)
         self.assertEqual((f["items"], f["amount"], f["currency"], f["recurrence"], f["duration"]),
                          ("AquaGuard Pro", "15.00", "USD", "1 Month", "Forever"))
+        # notify goes to the public URL; the browser returns to the host it is on
         self.assertEqual(f["notify_url"], "https://example.ngrok.app/billing/notify")
-        self.assertEqual(f["return_url"], "https://example.ngrok.app/billing/success")
-        self.assertEqual(f["cancel_url"], "https://example.ngrok.app/billing/cancel")
+        self.assertEqual(f["return_url"], "http://localhost/billing/success")
+        self.assertEqual(f["cancel_url"], "http://localhost/billing/cancel")
         self.assertEqual((f["first_name"], f["last_name"], f["country"]), ("Nimal", "Perera", "Sri Lanka"))
         self.assertEqual((f["custom_1"], f["custom_2"]), (str(self.user_id), "pro"))
         self.assertEqual(f["hash"], checkout_hash(MERCHANT_ID, f["order_id"], "15.00", "USD", SECRET))
@@ -266,10 +267,68 @@ class BillingFlowTests(unittest.TestCase):
                     message_type="RECURRING_STOPPED", item_rec_status="-1")
         self.assertEqual(self.user()["plan"], "basic")
 
+    def test_return_urls_follow_the_users_host(self):
+        r = self.web.get("/billing/checkout/plus", base_url="http://localhost:5000")
+        f = dict(re.findall(r'<input type="hidden" name="(\w+)" value="([^"]*)"', r.get_data(as_text=True)))
+        self.assertEqual(f["return_url"], "http://localhost:5000/billing/success")
+        self.assertEqual(f["cancel_url"], "http://localhost:5000/billing/cancel")
+        self.assertEqual(f["notify_url"], "https://example.ngrok.app/billing/notify")
+        # behind a TLS-terminating tunnel the scheme comes from X-Forwarded-Proto
+        # (the session cookie is per host, so sign in on the tunnel host first)
+        tunnel, base = A.app.test_client(), "http://abc.ngrok-free.dev"
+        page = tunnel.get("/login", base_url=base).get_data(as_text=True)
+        token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
+        tunnel.post("/login", base_url=base, data={"csrf": token, "email": self.email,
+                                                   "password": "secret123", "next": "/"})
+        r = tunnel.get("/billing/checkout/plus", base_url=base, headers={"X-Forwarded-Proto": "https"})
+        f = dict(re.findall(r'<input type="hidden" name="(\w+)" value="([^"]*)"', r.get_data(as_text=True)))
+        self.assertEqual(f["return_url"], "https://abc.ngrok-free.dev/billing/success")
+
+    def test_status_endpoint_and_success_page_after_valid_notify(self):
+        _, f = self.checkout("pro")
+        oid = f["order_id"]
+        anon = A.app.test_client()
+        self.assertEqual(anon.get(f"/billing/status/{oid}").get_json(),
+                         {"status": "pending", "plan": "pro", "plan_name": "Pro", "renews_at": None})
+        self.assertEqual(self.notify(oid).status_code, 200)
+        status = anon.get(f"/billing/status/{oid}").get_json()
+        self.assertEqual(status, {"status": "paid", "plan": "pro", "plan_name": "Pro",
+                                  "renews_at": "2026-11-18"})
+
+        page = self.web.get(f"/billing/success?order_id={oid}").get_data(as_text=True)
+        for text in ("activating your Pro plan", "Welcome to AquaGuard PRO", "Drowning detection &amp; alerts",
+                     "PDF session reports", "Go to Dashboard", "View Account", 'data-owner="1"'):
+            self.assertIn(text, page)
+        self.assertNotIn("Garbage &amp; littering detection", page)  # not part of Pro
+        self.assertIn(">PRO</a>", page)  # header badge (plan already active)
+
+    def test_success_page_without_session(self):
+        _, f = self.checkout("plus")
+        self.notify(f["order_id"])
+        anon = A.app.test_client()  # e.g. PayHere sent the browser to the ngrok host
+        r = anon.get(f"/billing/success?order_id={f['order_id']}", base_url="https://abc.ngrok-free.dev")
+        page = r.get_data(as_text=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Welcome to AquaGuard PLUS", page)
+        self.assertIn('href="http://localhost:5000/">Open dashboard', page)
+        self.assertIn('data-owner="0"', page)
+        self.assertNotIn(self.email, page)  # no personal data
+        self.assertNotIn("Nimal", page)
+
+    def test_success_page_never_blank(self):
+        anon = A.app.test_client()
+        for url in ("/billing/success", "/billing/success?order_id=NOPE"):
+            r = anon.get(url)
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("couldn't find this payment", r.get_data(as_text=True))
+        r = anon.post("/billing/success", data={"order_id": "NOPE"})  # PayHere POST-back
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(anon.get("/billing/status/NOPE").status_code, 404)
+
     def test_return_url_never_changes_plan(self):
         _, f = self.checkout("pro")
         r = self.web.get(f"/billing/success?order_id={f['order_id']}")
-        self.assertIn("activating your plan", r.get_data(as_text=True))
+        self.assertIn("activating your Pro plan", r.get_data(as_text=True))
         self.assertEqual(self.user()["plan"], "basic")
         me = self.web.get(f"/api/me?order_id={f['order_id']}").get_json()
         self.assertEqual((me["effective_plan"], me["order"]["status"]), ("basic", "pending"))

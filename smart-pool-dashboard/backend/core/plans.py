@@ -24,6 +24,15 @@ FEATURES = {
     "garbage": "Garbage & littering detection",
     "decision_engine": "Decision engine (risk & maintenance)",
 }
+# Short names for sentences like "Drowning detection and reports unlocked"
+FEATURE_SHORT = {
+    "crowd": "Crowd detection",
+    "water_quality": "water quality",
+    "drowning": "Drowning detection",
+    "reports": "reports",
+    "garbage": "Garbage detection",
+    "decision_engine": "the Decision engine",
+}
 
 # Unknown plan keys fall back to the most restrictive plan (fail closed)
 FALLBACK_PLAN = "basic"

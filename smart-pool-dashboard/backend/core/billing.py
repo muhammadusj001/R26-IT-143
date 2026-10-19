@@ -94,11 +94,18 @@ def checkout(plan_key):
     session["last_order_id"] = order_id
 
     first_name, _, last_name = user["name"].strip().partition(" ")
+    # The browser comes back to the host the user is logged in on (their
+    # session cookie lives there); only PayHere's server-to-server
+    # notification needs the public URL.
+    here = request.host_url.rstrip("/")
+    return_url = f"{here}{url_for('billing.success')}"
+    cancel_url = f"{here}{url_for('billing.cancel')}"
+    notify_url = f"{settings.PUBLIC_BASE_URL}{url_for('billing.notify')}"
     fields = {
         "merchant_id": settings.PAYHERE_MERCHANT_ID,
-        "return_url": f"{settings.PUBLIC_BASE_URL}{url_for('billing.success')}",
-        "cancel_url": f"{settings.PUBLIC_BASE_URL}{url_for('billing.cancel')}",
-        "notify_url": f"{settings.PUBLIC_BASE_URL}{url_for('billing.notify')}",
+        "return_url": return_url,
+        "cancel_url": cancel_url,
+        "notify_url": notify_url,
         "order_id": order_id,
         "items": f"AquaGuard {plan['name']}",
         "currency": CURRENCY,
@@ -117,21 +124,48 @@ def checkout(plan_key):
         "hash": checkout_hash(settings.PAYHERE_MERCHANT_ID, order_id, amount, CURRENCY,
                               settings.PAYHERE_MERCHANT_SECRET),
     }
-    log.info("checkout order=%s user=%s plan=%s amount=%s %s",
-             order_id, user["id"], plan_key, amount, CURRENCY)
+    log.info("checkout order=%s user=%s plan=%s amount=%s %s return_url=%s cancel_url=%s "
+             "notify_url=%s", order_id, user["id"], plan_key, amount, CURRENCY,
+             return_url, cancel_url, notify_url)
     return render_template("billing/redirect.html", action=settings.PAYHERE_CHECKOUT_URL,
                            fields=fields, plan_key=plan_key)
 
 
-@bp.route("/billing/success")
-@user_required
+def _order_status(order):
+    """Public, read-only status of an order (no personal data)."""
+    renews_at = None
+    if order["status"] == "paid":
+        user = db.get_user(order["user_id"])
+        if user is not None and user["plan"] == order["plan"]:
+            renews_at = (user["plan_renews_at"] or "")[:10] or None
+    return {"status": order["status"], "plan": order["plan"],
+            "plan_name": PLANS[order["plan"]]["name"], "renews_at": renews_at}
+
+
+@bp.route("/billing/success", methods=["GET", "POST"])
 def success():
-    # Never trust the return URL: it only shows a waiting page.
-    order_id = request.args.get("order_id") or session.get("last_order_id")
+    """PayHere's return page. Never trusted (the plan only changes in
+    notify) and never blank: it works without a session — PayHere may send
+    the browser to a host the user is not logged in on (e.g. ngrok)."""
+    order_id = (request.values.get("order_id") or session.get("last_order_id") or "").strip()
     order = db.get_order(order_id) if order_id else None
-    if order is None or order["user_id"] != current_user()["id"]:
-        return redirect(url_for("auth.account"))
-    return render_template("billing/success.html", order=order)
+    user = current_user()
+    is_owner = order is not None and user is not None and user["id"] == order["user_id"]
+    log.info("success page order=%s found=%s logged_in_owner=%s host=%s",
+             order_id or "-", order is not None, is_owner, request.host)
+    return render_template(
+        "billing/success.html", order=order, order_id=order_id, is_owner=is_owner,
+        app_base_url=settings.APP_BASE_URL,
+        status=_order_status(order) if order is not None else None,
+    )
+
+
+@bp.route("/billing/status/<order_id>")
+def order_status(order_id):
+    order = db.get_order(order_id)
+    if order is None:
+        return jsonify({"status": "unknown", "plan": None}), 404
+    return jsonify(_order_status(order))
 
 
 @bp.route("/billing/cancel")
@@ -172,9 +206,14 @@ def process_notification(form):
     payment_id = form.get("payment_id") or None
     status_code = form.get("status_code", "")
     message_type = form.get("message_type", "")
-    sig_ok = bool(settings.PAYHERE_MERCHANT_SECRET) and \
-        form.get("merchant_id") == settings.PAYHERE_MERCHANT_ID and \
+    merchant_ok = form.get("merchant_id") == settings.PAYHERE_MERCHANT_ID
+    sig_ok = bool(settings.PAYHERE_MERCHANT_SECRET) and merchant_ok and \
         signature_valid(form, settings.PAYHERE_MERCHANT_ID, settings.PAYHERE_MERCHANT_SECRET)
+    log.info("notify received order_id=%s status_code=%s signature_valid=%s%s payment_id=%s "
+             "message_type=%s amount=%s %s", order_id or "-", status_code or "-",
+             "yes" if sig_ok else "no", "" if merchant_ok else " (merchant_id mismatch)",
+             payment_id or "-", message_type or "-", form.get("payhere_amount", "-"),
+             form.get("payhere_currency", "-"))
     dedupe_key = f"{order_id}|{payment_id or ''}|{status_code}|{message_type}"
 
     conn = db.raw_connect()
@@ -196,8 +235,8 @@ def process_notification(form):
     finally:
         conn.close()
 
-    log.info("notify order=%s payment=%s status=%s type=%s sig_ok=%s -> %s %s",
-             order_id, payment_id, status_code, message_type, sig_ok, status, result)
+    log.info("notify done order_id=%s status_code=%s signature_valid=%s -> HTTP %s: %s",
+             order_id or "-", status_code or "-", "yes" if sig_ok else "no", status, result)
     if processed and status == 200:
         user_id = db.get_order(order_id)["user_id"]
         _notify_plan_change(user_id)  # re-gate that user's open dashboards

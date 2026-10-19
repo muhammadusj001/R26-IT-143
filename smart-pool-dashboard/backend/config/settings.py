@@ -128,8 +128,12 @@ PAYHERE_CHECKOUT_URL = (
     "https://sandbox.payhere.lk/pay/checkout" if PAYHERE_SANDBOX
     else "https://www.payhere.lk/pay/checkout"
 )
-# Public https base URL PayHere can reach for notify_url (e.g. ngrok)
+# Public https base URL PayHere can reach for notify_url (e.g. ngrok).
+# Only notify_url uses it; return/cancel URLs use the host the user is on.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+# Where users normally open the dashboard (link shown when PayHere sends a
+# user back to a host they are not logged in on, e.g. the ngrok URL)
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:5000").strip().rstrip("/")
 BILLING_CONFIGURED = bool(PAYHERE_MERCHANT_ID and PAYHERE_MERCHANT_SECRET and PUBLIC_BASE_URL)
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "backend" / "data"))
 DB_PATH = Path(os.getenv("DB_PATH", DATA_DIR / "app.db"))

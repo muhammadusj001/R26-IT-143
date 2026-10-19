@@ -35,6 +35,7 @@ for _repo in ("component1-crowd-maintenance", "component2-water-quality",
 import cv2
 from flask import Flask, render_template, send_file, jsonify, after_this_request, redirect, request
 from flask_socketio import SocketIO, emit, ConnectionRefusedError
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import settings
 from core import auth, billing, db
@@ -56,6 +57,9 @@ app = Flask(
     template_folder=str(settings.BASE_DIR / "frontend-vanilla" / "templates"),
     static_folder=str(settings.BASE_DIR / "frontend-vanilla" / "static"),
 )
+# Behind ngrok / VS Code tunnels TLS ends at the proxy; honour its
+# X-Forwarded-Proto so request.host_url keeps "https" (billing return URLs)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 app.config.update(
     SECRET_KEY=settings.SECRET_KEY,
     SESSION_COOKIE_HTTPONLY=True,

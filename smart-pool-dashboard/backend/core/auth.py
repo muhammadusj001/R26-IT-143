@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import settings
 from core import db
-from core.plans import (FEATURES, PLANS, has_feature, plan_change_kind, price_label,
+from core.plans import (FEATURE_SHORT, FEATURES, PLANS, has_feature, plan_change_kind, price_label,
                         required_plan, resolve_plan_key)
 
 bp = Blueprint("auth", __name__)
@@ -91,6 +91,7 @@ def _inject():
         "current_plan": current_plan(),  # None when logged out (outside DEMO_MODE)
         "plans": PLANS,
         "features": FEATURES,
+        "feature_short": FEATURE_SHORT,
         "has_feature": has_feature,
         "required_plan": required_plan,
         "price_label": price_label,
