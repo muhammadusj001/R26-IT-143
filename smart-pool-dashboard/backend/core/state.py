@@ -57,6 +57,15 @@ class SystemState:
                 "intent_score": 0.0,
                 "intent_confidence": 0,
                 "risk_level": "NORMAL",
+                # v2.3 plain-language incident fields
+                "surface_count": 0,
+                "underwater_count": 0,
+                "underwater_labels": [],
+                "human_action": "",
+                "actions": [],
+                "last_throw_sec_ago": None,
+                "event_feed": [],
+                "event_legend": {},
             },
             "water_quality": {
                 "ph": None,

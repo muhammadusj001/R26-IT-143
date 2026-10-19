@@ -1,4 +1,9 @@
 opencv-python>=4.8
 ultralytics>=8.1
 torch>=2.0
-mediapipe>=1.0.0
+mediapipe>=0.10.14
+numpy
+scikit-learn      # only for tools/intent_dataset.py (evaluate / train)
+joblib
+flask             # only for integration_example.py
+# pymongo         # optional: uncomment and set MONGO_URI to store events in MongoDB

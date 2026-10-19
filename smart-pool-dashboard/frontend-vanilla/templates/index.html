@@ -119,13 +119,24 @@
       <div class="stat-row">
         <div class="stat"><span class="stat-val" id="garbageCount">0</span><span class="stat-label">Objects</span></div>
         <div class="stat"><span class="stat-val" id="garbageStatus">CLEAR</span><span class="stat-label">Status</span></div>
-        <div class="stat"><span class="stat-val" id="garbageEvents">0</span><span class="stat-label">Events</span></div>
+        <div class="stat stat-has-info"><span class="stat-val" id="garbageEvents">0</span><span class="stat-label">Incidents
+          <span class="info-icon" tabindex="0" aria-label="What do incidents mean?">i
+            <span class="info-tip" id="garbageLegend" role="tooltip"></span>
+          </span></span></div>
       </div>
       <div class="garbage-intent">
         <span class="pill safe" id="garbageRisk">NORMAL</span>
         <span id="garbageSource">No intrusion detected</span><span id="garbageIntent"></span>
       </div>
+      <div class="garbage-lines">
+        <div>On surface: <b id="garbageSurface">0</b>&nbsp; | &nbsp;Under water: <b id="garbageUnderwater">0</b></div>
+        <div>Human action: <b id="garbageAction" class="human-action">–</b></div>
+      </div>
       <div class="recommendation" id="garbageLabels">No objects detected</div>
+      <div class="incident-feed">
+        <div class="incident-feed-title">Recent garbage incidents</div>
+        <ul class="incident-list" id="garbageFeed"><li class="muted">No incidents yet</li></ul>
+      </div>
     </div>
 
     <div class="card" id="waterCard">
