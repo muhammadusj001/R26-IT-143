@@ -9,6 +9,9 @@
   border: 1px solid var(--border-strong);
 }
 .btn-ghost:hover { background: var(--surface-2); }
+.btn-danger-outline { color: var(--danger-strong); border-color: var(--danger); }
+.btn-danger-outline:hover { background: var(--danger-soft); }
+.account-actions form { margin: 0; }
 a.btn-primary { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 
 /* Plan badges */

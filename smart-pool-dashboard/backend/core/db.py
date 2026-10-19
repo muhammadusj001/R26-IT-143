@@ -29,28 +29,48 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      TEXT NOT NULL,
     phone           TEXT,
     address         TEXT,
-    city            TEXT
+    city            TEXT,
+    -- plan to switch to at plan_renews_at: 'basic' = cancelled at period
+    -- end, a paid plan = downgrade scheduled (completed by a new checkout)
+    scheduled_plan  TEXT
 );
 
--- One row per charge: created "pending" at checkout, updated by the
--- verified PayHere notification; renewal installments add new rows
--- with the same order_id and their own payhere_payment_id.
+-- One row per subscription order (UNIQUE order_id): created "pending" at
+-- checkout, updated by the verified PayHere notification / Retrieval API;
+-- later monthly charges update the same row (latest payment id, paid_at).
 CREATE TABLE IF NOT EXISTS payments (
-    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id            INTEGER NOT NULL REFERENCES users(id),
-    order_id           TEXT NOT NULL,
-    plan               TEXT NOT NULL,
-    amount             TEXT NOT NULL,
-    currency           TEXT NOT NULL,
-    status             TEXT NOT NULL DEFAULT 'pending',
-    payhere_payment_id TEXT,
-    subscription_id    TEXT,
-    created_at         TEXT NOT NULL,
-    updated_at         TEXT
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL REFERENCES users(id),
+    order_id            TEXT NOT NULL,
+    plan                TEXT NOT NULL,
+    amount              TEXT NOT NULL,
+    currency            TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'pending',
+    payhere_payment_id  TEXT,
+    subscription_id     TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT,
+    paid_at             TEXT,
+    -- subscription this order replaces (upgrade): cancelled once it is paid
+    old_subscription_id TEXT
 );
 CREATE INDEX IF NOT EXISTS payments_order_id ON payments(order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS payments_payhere_payment_id
     ON payments(payhere_payment_id) WHERE payhere_payment_id IS NOT NULL;
+
+-- PayHere subscriptions we asked to cancel (upgrade, downgrade, cancel).
+-- status 'cancel_pending' = the API call failed: shown to the admin so a
+-- subscription is never left charging silently.
+CREATE TABLE IF NOT EXISTS subscription_cancellations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    subscription_id TEXT NOT NULL UNIQUE,
+    reason          TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    error           TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT
+);
 
 -- Every notification PayHere sends (valid or not). dedupe_key is set only
 -- once a notification has been processed, so a repeat is detected.
@@ -69,10 +89,14 @@ CREATE TABLE IF NOT EXISTS payhere_notifications (
 """
 
 # Columns added after the first release (added to existing databases)
-_USER_MIGRATIONS = {"phone": "TEXT", "address": "TEXT", "city": "TEXT"}
+_MIGRATIONS = {
+    "users": {"phone": "TEXT", "address": "TEXT", "city": "TEXT", "scheduled_plan": "TEXT"},
+    "payments": {"paid_at": "TEXT", "old_subscription_id": "TEXT"},
+}
 
 USER_FIELDS = ("name", "email", "password_hash", "plan", "plan_status",
-               "subscription_id", "plan_renews_at", "is_admin", "phone", "address", "city")
+               "subscription_id", "plan_renews_at", "is_admin", "phone", "address", "city",
+               "scheduled_plan")
 
 
 def raw_connect():
@@ -100,11 +124,29 @@ def connect():
 
 def init_db():
     with connect() as conn:
-        existing = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
-        for column, sql_type in _USER_MIGRATIONS.items():
-            if existing and column not in existing:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {column} {sql_type}")
+        for table, columns in _MIGRATIONS.items():
+            existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for column, sql_type in columns.items():
+                if existing and column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
         conn.executescript(SCHEMA)
+        _merge_duplicate_orders(conn)
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS payments_order_unique ON payments(order_id)")
+
+
+def _merge_duplicate_orders(conn):
+    """Older versions added a row per monthly charge (and PayHere sends an
+    AUTHORIZATION_SUCCESS plus a first RECURRING_INSTALLMENT_SUCCESS for a
+    new subscription). Keep one row per order: the first, carrying the
+    latest payment id."""
+    for dup in conn.execute("SELECT order_id FROM payments GROUP BY order_id HAVING COUNT(*) > 1").fetchall():
+        rows = conn.execute("SELECT * FROM payments WHERE order_id = ? ORDER BY id", (dup["order_id"],)).fetchall()
+        keep, latest = rows[0], rows[-1]
+        conn.execute("DELETE FROM payments WHERE order_id = ? AND id != ?", (dup["order_id"], keep["id"]))
+        conn.execute("UPDATE payments SET payhere_payment_id = ?, status = ?, updated_at = ?, "
+                     "paid_at = COALESCE(paid_at, ?) WHERE id = ?",
+                     (latest["payhere_payment_id"], latest["status"], latest["updated_at"],
+                      (latest["updated_at"] or latest["created_at"])[:10], keep["id"]))
 
 
 def now():
@@ -155,13 +197,56 @@ def update_user(user_id, **fields):
         conn.execute(f"UPDATE users SET {assignments} WHERE id = ?", (*fields.values(), user_id))
 
 
-def create_payment(user_id, order_id, plan, amount, currency):
+def create_payment(user_id, order_id, plan, amount, currency, old_subscription_id=None):
     with connect() as conn:
         conn.execute(
-            "INSERT INTO payments (user_id, order_id, plan, amount, currency, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-            (user_id, order_id, plan, amount, currency, now()),
+            "INSERT INTO payments (user_id, order_id, plan, amount, currency, status, created_at, "
+            "old_subscription_id) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+            (user_id, order_id, plan, amount, currency, now(), old_subscription_id),
         )
+
+
+def record_cancellation(user_id, subscription_id, reason, status, error=None):
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO subscription_cancellations (user_id, subscription_id, reason, status, error, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(subscription_id) DO UPDATE SET status = excluded.status, "
+            "error = excluded.error, updated_at = excluded.updated_at",
+            (user_id, subscription_id, reason, status, error, now(), now()),
+        )
+
+
+def get_cancellation(subscription_id):
+    with connect() as conn:
+        return conn.execute("SELECT * FROM subscription_cancellations WHERE subscription_id = ?",
+                            (subscription_id,)).fetchone()
+
+
+def list_cancellations(status=None):
+    with connect() as conn:
+        sql = ("SELECT c.*, u.email FROM subscription_cancellations c JOIN users u ON u.id = c.user_id"
+               + (" WHERE c.status = ?" if status else "") + " ORDER BY c.id DESC")
+        return conn.execute(sql, (status,) if status else ()).fetchall()
+
+
+def apply_due_changes(user):
+    """Run a scheduled cancel/downgrade once its date has passed. Called on
+    every request for the logged-in user; returns the (possibly updated) row."""
+    if user is None or not user["scheduled_plan"] or not user["plan_renews_at"]:
+        return user
+    try:
+        due = datetime.fromisoformat(user["plan_renews_at"][:10]).date() <= datetime.now().date()
+    except ValueError:
+        due = True
+    if not due:
+        return user
+    # Paid period over: drop to Basic. For a downgrade, scheduled_plan stays
+    # set so the account page prompts the checkout for the lower plan.
+    keep = None if user["scheduled_plan"] == "basic" else user["scheduled_plan"]
+    update_user(user["id"], plan="basic", plan_status="active", plan_renews_at=None,
+                subscription_id=None, scheduled_plan=keep)
+    return get_user(user["id"])
 
 
 def abandon_pending_orders(user_id):

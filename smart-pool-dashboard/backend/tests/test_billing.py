@@ -244,21 +244,24 @@ class BillingFlowTests(unittest.TestCase):
         self.notify(f["order_id"])  # the success that follows still activates
         self.assertEqual(self.user()["plan"], "pro")
 
-    def test_renewal_installment_adds_payment_and_extends(self):
+    def test_renewal_installment_updates_the_order_and_extends(self):
         _, f = self.checkout("pro")
         self.notify(f["order_id"])
         r = self.notify(f["order_id"], payment_id="320026", message_type="RECURRING_INSTALLMENT_SUCCESS",
                         item_rec_date_next="2026-12-18")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual([p["status"] for p in self.payments()], ["paid", "paid"])
+        rows = self.payments()
+        self.assertEqual([(p["status"], p["payhere_payment_id"]) for p in rows],
+                         [("paid", f"{self.user_id}320026")])  # one row per order, latest charge
         self.assertEqual(self.user()["plan_renews_at"], "2026-12-18")
 
     def test_failed_renewal_keeps_plan_until_renewal_date(self):
         _, f = self.checkout("pro")
         self.notify(f["order_id"])
-        self.notify(f["order_id"], status_code="-2", payment_id="320026",
-                    message_type="RECURRING_INSTALLMENT_FAILED")
-        self.assertEqual(self.payments()[0]["status"], "failed")
+        r = self.notify(f["order_id"], status_code="-2", payment_id="320026",
+                        message_type="RECURRING_INSTALLMENT_FAILED")
+        self.assertEqual(r.data, b"renewal failed")
+        self.assertEqual(self.payments()[0]["status"], "paid")  # history row not overwritten
         self.assertEqual(self.user()["plan"], "pro")  # lapses when plan_renews_at passes
 
     def test_chargeback_downgrades(self):
@@ -351,16 +354,150 @@ class BillingFlowTests(unittest.TestCase):
         self.assertIn("Payment cancelled", r.get_data(as_text=True))
         self.assertIn("Choose your plan", r.get_data(as_text=True))
 
-    def test_active_subscription_blocks_second_checkout_and_free_downgrade(self):
+    def test_same_plan_checkout_and_free_downgrade_blocked_for_subscribers(self):
         _, f = self.checkout("pro")
         self.notify(f["order_id"])
-        r = self.web.get("/billing/checkout/plus", follow_redirects=True)
-        self.assertIn("already have an active subscription", r.get_data(as_text=True))
+        r = self.web.get("/billing/checkout/pro", follow_redirects=True)
+        self.assertIn("You&#39;re already on Pro", r.get_data(as_text=True))
+        self.assertEqual(len(self.payments()), 1)  # no second order for the same plan
         page = self.web.get("/pricing").get_data(as_text=True)
+        self.assertIn("Cancel subscription", page)  # Basic card for a paid user
         token = re.search(r'name="csrf" value="([^"]+)"', page).group(1)
         r = self.web.post("/account/plan/basic", data={"csrf": token}, follow_redirects=True)
-        self.assertIn("ask the admin to cancel", r.get_data(as_text=True))
+        self.assertIn("Cancel subscription", r.get_data(as_text=True))
         self.assertEqual(self.user()["plan"], "pro")
+
+    # ── plan changes ─────────────────────────────────────────
+    def mock_cancel(self, fail=False):
+        """Replace the PayHere cancel call; returns the list of cancelled ids."""
+        self.enable_retrieval()
+        calls = []
+        original = payhere_api.cancel_subscription
+
+        def fake(subscription_id, **kw):
+            calls.append(subscription_id)
+            if fail:
+                raise payhere_api.RetrievalError("subscription cancel failed: HTTP 500")
+            return {"status": 1, "msg": "Successfully cancelled the subscription"}
+        payhere_api.cancel_subscription = fake
+        self.addCleanup(setattr, payhere_api, "cancel_subscription", original)
+        return calls
+
+    def subscribe(self, plan, sub):
+        _, f = self.checkout(plan)
+        self.notify(f["order_id"], subscription_id=sub)
+        self.assertEqual((self.user()["plan"], self.user()["subscription_id"]), (plan, sub))
+        return f["order_id"]
+
+    def csrf_from(self, path):
+        return re.search(r'name="csrf" value="([^"]+)"', self.web.get(path).get_data(as_text=True)).group(1)
+
+    def test_pro_to_plus_upgrade_cancels_old_subscription(self):
+        calls = self.mock_cancel()
+        old_sub, new_sub = f"PRO{self.user_id}", f"PLUS{self.user_id}"
+        self.subscribe("pro", old_sub)
+        self.assertIn("will be cancelled automatically", self.web.get("/pricing").get_data(as_text=True))
+        html, f = self.checkout("plus")  # allowed now (was "ask the admin")
+        self.assertEqual((f["amount"], db.get_order(f["order_id"])["old_subscription_id"]), ("25.00", old_sub))
+        self.assertEqual(calls, [])  # nothing cancelled before the Plus payment is confirmed
+        self.notify(f["order_id"], subscription_id=new_sub, payment_id="320040")
+        u = self.user()
+        self.assertEqual((u["plan"], u["subscription_id"]), ("plus", new_sub))
+        self.assertEqual(calls, [old_sub])
+        self.assertEqual(db.get_cancellation(old_sub)["status"], "cancelled")
+        # PayHere later reports the old Pro subscription as stopped: Plus is untouched
+        self.notify(f["order_id"], status_code="-2", payment_id="99", subscription_id=old_sub,
+                    message_type="RECURRING_STOPPED", item_rec_status="-1")
+        self.assertEqual(self.user()["plan"], "plus")
+
+    def test_upgrade_cancel_failure_is_cancel_pending_for_admin(self):
+        self.mock_cancel(fail=True)
+        old_sub = f"PRO{self.user_id}"
+        self.subscribe("pro", old_sub)
+        _, f = self.checkout("plus")
+        self.notify(f["order_id"], subscription_id=f"PLUS{self.user_id}", payment_id="320040")
+        self.assertEqual(self.user()["plan"], "plus")
+        c = db.get_cancellation(old_sub)
+        self.assertEqual((c["status"], c["error"]), ("cancel_pending", "subscription cancel failed: HTTP 500"))
+        page = self.admin_client().get("/admin/users").get_data(as_text=True)
+        self.assertIn("Cancellations needing attention", page)
+        self.assertIn(old_sub, page)
+
+    def test_cancel_keeps_access_until_renew_date_then_basic(self):
+        calls = self.mock_cancel()
+        sub = f"PRO{self.user_id}"
+        self.subscribe("pro", sub)
+        r = self.web.post("/billing/cancel-subscription", data={"csrf": self.csrf_from("/account")},
+                          follow_redirects=True)
+        page = r.get_data(as_text=True)
+        self.assertIn("stays active until 2026-11-18", page)
+        self.assertIn("CANCELS ON 2026-11-18", page)
+        self.assertEqual(calls, [sub])
+        u = self.user()
+        self.assertEqual((u["plan"], u["scheduled_plan"], db.effective_plan(u)), ("pro", "basic", "pro"))
+        # PayHere confirms the stop: access continues until the paid period ends
+        self.notify(db.list_payments(self.user_id)[0]["order_id"], status_code="-2", payment_id="98",
+                    subscription_id=sub, message_type="RECURRING_STOPPED", item_rec_status="-1")
+        self.assertEqual(self.user()["plan"], "pro")
+        # the renewal date passes -> next request drops to Basic
+        db.update_user(self.user_id, plan_renews_at="2000-01-01")
+        self.web.get("/account")
+        u = self.user()
+        self.assertEqual((u["plan"], u["subscription_id"], u["scheduled_plan"], u["plan_renews_at"]),
+                         ("basic", None, None, None))
+
+    def test_downgrade_plus_to_pro_is_scheduled(self):
+        calls = self.mock_cancel()
+        sub = f"PLUS{self.user_id}"
+        self.subscribe("plus", sub)
+        page = self.web.get("/pricing").get_data(as_text=True)
+        self.assertIn(f'/billing/downgrade/pro', page)
+        r = self.web.post("/billing/downgrade/pro", data={"csrf": self.csrf_from("/pricing")},
+                          follow_redirects=True)
+        self.assertIn("Your plan will change to Pro on 2026-11-18", r.get_data(as_text=True))
+        u = self.user()
+        self.assertEqual((u["plan"], u["scheduled_plan"], calls), ("plus", "pro", [sub]))  # no charge now
+        db.update_user(self.user_id, plan_renews_at="2000-01-01")
+        page = self.web.get("/account").get_data(as_text=True)
+        self.assertEqual((self.user()["plan"], self.user()["scheduled_plan"]), ("basic", "pro"))
+        self.assertIn("/billing/checkout/pro", page)  # prompt to complete the Pro checkout
+        _, f = self.checkout("pro")
+        self.notify(f["order_id"], subscription_id=f"PRO{self.user_id}", payment_id="320041")
+        self.assertEqual((self.user()["plan"], self.user()["scheduled_plan"]), ("pro", None))
+
+    def test_duplicate_and_first_installment_notify_keep_one_history_row(self):
+        _, f = self.checkout("pro")
+        self.notify(f["order_id"])  # AUTHORIZATION_SUCCESS
+        self.notify(f["order_id"])  # exact duplicate
+        self.notify(f["order_id"], payment_id="320026", message_type="RECURRING_INSTALLMENT_SUCCESS")
+        rows = self.payments()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "paid")
+        self.assertEqual(self.web.get("/account").get_data(as_text=True).count(f["order_id"]), 1)
+
+    def test_renew_date_is_one_month_after_payment_when_payhere_sends_today(self):
+        from datetime import date as _date
+        today = _date.today()
+        _, f = self.checkout("pro")
+        self.notify(f["order_id"], item_rec_date_next=today.isoformat())  # what the sandbox sends
+        self.assertEqual(self.user()["plan_renews_at"], billing._one_month_from(today).isoformat())
+        self.assertEqual(billing._next_billing_date("", _date(2026, 1, 31)), "2026-02-28")
+        self.assertEqual(billing._next_billing_date("2026-12-01", _date(2026, 10, 19)), "2026-12-01")
+        self.assertIn(billing._one_month_from(today).isoformat(), self.web.get("/account").get_data(as_text=True))
+
+    def test_existing_duplicate_rows_are_merged(self):
+        import sqlite3
+        mem = sqlite3.connect(":memory:")
+        mem.row_factory = sqlite3.Row
+        mem.executescript(db.SCHEMA)
+        mem.execute("INSERT INTO users (name, email, password_hash, created_at) VALUES ('a','a@x','h','2026-10-19')")
+        for pid, ts in (("320032674729", "2026-10-19 10:03:21"), ("320032674730", "2026-10-19 10:04:21")):
+            mem.execute("INSERT INTO payments (user_id, order_id, plan, amount, currency, status, "
+                        "payhere_payment_id, created_at, updated_at) VALUES (1,'AG8-427A684376','pro',"
+                        "'15.00','USD','paid',?,?,?)", (pid, ts, ts))
+        db._merge_duplicate_orders(mem)
+        rows = mem.execute("SELECT payhere_payment_id FROM payments").fetchall()
+        self.assertEqual([r[0] for r in rows], ["320032674730"])
 
     def test_account_shows_payment_history(self):
         _, f = self.checkout("pro")

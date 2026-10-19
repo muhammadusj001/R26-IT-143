@@ -55,6 +55,26 @@ def _access_token(http=requests):
         return _token["value"]
 
 
+def cancel_subscription(subscription_id, http=requests):
+    """Subscription Manager API: stop future charges for subscription_id.
+    Raises RetrievalError unless PayHere confirms (status 1)."""
+    token = _access_token(http)
+    resp = http.post(
+        f"{settings.PAYHERE_API_BASE}/merchant/v1/subscription/cancel",
+        json={"subscription_id": subscription_id},
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        timeout=TIMEOUT_S,
+    )
+    if resp.status_code == 401:
+        _token["value"] = None
+    if resp.status_code != 200:
+        raise RetrievalError(f"subscription cancel failed: HTTP {resp.status_code}")
+    body = resp.json()
+    if body.get("status") != 1:
+        raise RetrievalError(f"subscription cancel refused: {body.get('msg', body)}")
+    return body
+
+
 def search_payments(order_id, http=requests):
     """Payments PayHere has for order_id (list of dicts; [] if none)."""
     token = _access_token(http)

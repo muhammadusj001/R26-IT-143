@@ -9,13 +9,33 @@
   <dl class="account-details">
     <dt>Plan</dt>
     <dd>{{ ui.plan_badge(user['plan']) }} <span class="muted-inline">{{ price_label(user['plan']) }}</span></dd>
+    {% set renews = user['plan_renews_at'][:10] if user['plan_renews_at'] else none %}
+    {% set scheduled = user['scheduled_plan'] if user['plan'] != 'basic' else none %}
     <dt>Status</dt>
-    <dd><span class="pill {{ {'active': 'safe', 'pending': 'warn', 'cancelled': 'danger'}[user['plan_status']] }}">{{ user['plan_status']|upper }}</span></dd>
-    <dt>Renews</dt>
-    <dd class="mono">{{ user['plan_renews_at'][:10] if user['plan_renews_at'] else ('—' if user['plan'] == 'basic' else 'Not set') }}</dd>
+    <dd>
+      {% if scheduled == 'basic' %}<span class="pill warn">CANCELS ON {{ renews }}</span>
+      {% elif scheduled %}<span class="pill info">DOWNGRADE SCHEDULED</span>
+      {% else %}<span class="pill {{ {'active': 'safe', 'pending': 'warn', 'cancelled': 'danger'}[user['plan_status']] }}">{{ user['plan_status']|upper }}</span>{% endif %}
+    </dd>
+    <dt>{{ 'Active until' if scheduled else 'Next billing' }}</dt>
+    <dd class="mono">{{ renews or ('—' if user['plan'] == 'basic' else 'Not set') }}</dd>
+    {% if user['subscription_id'] %}
+    <dt>Subscription</dt>
+    <dd class="mono" title="PayHere subscription id">{{ mask_id(user['subscription_id']) }}</dd>
+    {% endif %}
     <dt>Member since</dt>
     <dd class="mono">{{ user['created_at'][:10] }}</dd>
   </dl>
+
+  {% if scheduled == 'basic' %}
+  <div class="notice account-note">Your subscription is cancelled — {{ plans[user['plan']].name }} stays active until <b>{{ renews }}</b>, then you move to Basic. You won't be charged again.</div>
+  {% elif scheduled %}
+  <div class="notice account-note">Your plan will change to <b>{{ plans[scheduled].name }}</b> on <b>{{ renews }}</b>. You keep {{ plans[user['plan']].name }} until then.</div>
+  {% elif user['plan'] == 'basic' and user['scheduled_plan'] in plans and user['scheduled_plan'] != 'basic' %}
+  <div class="notice account-note">Your previous plan has ended. Continue with <b>{{ plans[user['scheduled_plan']].name }}</b>
+    ({{ price_label(user['scheduled_plan']) }}) to finish your downgrade —
+    <a href="{{ url_for('billing.checkout', plan_key=user['scheduled_plan']) }}">confirm the {{ plans[user['scheduled_plan']].name }} payment</a>.</div>
+  {% endif %}
 
   {% if current_plan != user['plan'] %}
   <div class="notice notice-error account-note">
@@ -26,6 +46,13 @@
 
   <div class="account-actions">
     <a class="btn btn-primary" href="{{ url_for('auth.pricing') }}">Change plan</a>
+    {% if has_subscription and not user['scheduled_plan'] %}
+    <form method="post" action="{{ url_for('billing.cancel_subscription') }}"
+          onsubmit="return confirm('Cancel your {{ plans[user['plan']].name }} subscription? You keep it until {{ renews }}, then move to Basic.')">
+      <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-ghost btn-danger-outline">Cancel subscription</button>
+    </form>
+    {% endif %}
     <a class="btn btn-ghost" href="{{ url_for('index') }}">Back to dashboard</a>
   </div>
 </section>
@@ -39,7 +66,7 @@
       <tbody>
       {% for p in payments %}
         <tr>
-          <td class="mono">{{ p['created_at'][:10] }}</td>
+          <td class="mono">{{ (p['paid_at'] or p['created_at'])[:10] }}</td>
           <td>{{ plans[p['plan']].name if p['plan'] in plans else p['plan'] }}</td>
           <td class="mono">{{ p['currency'] }} {{ p['amount'] }}</td>
           <td><span class="pill {{ {'paid': 'safe', 'pending': 'warn', 'abandoned': ''}.get(p['status'], 'danger') }}">{{ p['status']|upper }}</span></td>

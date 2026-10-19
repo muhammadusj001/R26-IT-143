@@ -34,6 +34,7 @@ def current_user():
         g.user = db.get_user(user_id) if user_id is not None else None
         if user_id is not None and g.user is None:
             session.clear()  # account was deleted
+        g.user = db.apply_due_changes(g.user)  # scheduled cancel/downgrade reached its date
     return g.user
 
 
@@ -203,8 +204,8 @@ def select_basic():
     user = current_user()
     if db.has_active_subscription(user):
         # Downgrading here would not stop PayHere from charging the card
-        flash("You have an active paid subscription — ask the admin to cancel it "
-              "(it is then switched to Basic).", "error")
+        flash("You have an active paid subscription — use “Cancel subscription” to move to Basic.",
+              "error")
         return redirect(url_for("auth.account"))
     db.update_user(user["id"], plan="basic", plan_status="active", plan_renews_at=None)
     _notify_plan_change(user["id"])
@@ -217,7 +218,8 @@ def select_basic():
 def admin_users():
     users = [dict(u, effective_plan=db.effective_plan(u)) for u in db.list_users()]
     return render_template("auth/admin_users.html", users=users, statuses=db.PLAN_STATUSES,
-                           open_orders=db.list_open_orders())
+                           open_orders=db.list_open_orders(),
+                           pending_cancellations=db.list_cancellations("cancel_pending"))
 
 
 @bp.route("/admin/users/<int:user_id>/plan", methods=["POST"])

@@ -56,10 +56,19 @@ def billing_configured():
     return settings.BILLING_CONFIGURED
 
 
+def mask_id(value):
+    """Show only the ends of an id: 420075054277 -> 4200…4277."""
+    value = str(value or "")
+    return value if len(value) <= 8 else f"{value[:4]}…{value[-4:]}"
+
+
 @bp.app_context_processor
 def _inject():
+    user = current_user()
     return {"billing_configured": billing_configured(),
-            "payhere_sandbox": settings.PAYHERE_SANDBOX}
+            "payhere_sandbox": settings.PAYHERE_SANDBOX,
+            "has_subscription": bool(user) and db.has_active_subscription(user),
+            "mask_id": mask_id}
 
 
 # ── Checkout ─────────────────────────────────────────────────
@@ -79,12 +88,18 @@ def checkout(plan_key):
         return render_template("billing/unavailable.html", plan_key=plan_key)
 
     user = current_user()
+    old_subscription_id = None
     if db.has_active_subscription(user):
-        # Switching a running subscription would leave the old one billing
-        # at PayHere (no Subscription Manager API integration yet).
-        flash("You already have an active subscription — ask the admin to change or "
-              "cancel it.", "error")
-        return redirect(url_for("auth.account"))
+        current = PLANS[user["plan"]]
+        if user["plan"] == plan_key:
+            flash(f"You're already on {plan['name']}.", "error")
+            return redirect(url_for("auth.account"))
+        if plan["price_usd"] < current["price_usd"]:
+            # Downgrades are scheduled, not charged: see /billing/downgrade
+            flash(f"Use “Downgrade” to switch to {plan['name']} at the end of your billing period.", "error")
+            return redirect(url_for("auth.pricing"))
+        # Upgrade: the new subscription replaces this one once it is paid
+        old_subscription_id = user["subscription_id"]
 
     if request.method == "POST":
         _check_csrf()
@@ -104,7 +119,8 @@ def checkout(plan_key):
     abandoned = db.abandon_pending_orders(user["id"])
     if abandoned:
         log.info("checkout user=%s: %s older pending order(s) marked abandoned", user["id"], abandoned)
-    db.create_payment(user["id"], order_id, plan_key, amount, CURRENCY)
+    db.create_payment(user["id"], order_id, plan_key, amount, CURRENCY,
+                      old_subscription_id=old_subscription_id)
     session["last_order_id"] = order_id
 
     first_name, _, last_name = user["name"].strip().partition(" ")
@@ -303,7 +319,7 @@ def process_notification(form):
     log.info("notify done order_id=%s status_code=%s sig_valid=%s action=%s",
              order_id or "-", status_code or "-", "yes" if sig_ok else "no", result)
     if processed and status == 200:
-        _notify_plan_change(db.get_order(order_id)["user_id"])  # re-gate open dashboards
+        _after_payment(order_id)  # cancel a replaced subscription, re-gate dashboards
     return status, result
 
 
@@ -331,34 +347,35 @@ def _in_transaction(apply, order_id, payment_id, status_code, message_type, sig_
         conn.close()
 
 
-def _record(conn, order, status, payment_id, subscription_id, is_first_result):
-    """Update the checkout row on its first result, else add a charge row."""
-    now = db.now()
-    existing = payment_id and conn.execute(
-        "SELECT id FROM payments WHERE payhere_payment_id = ? AND order_id = ?",
-        (payment_id, order["order_id"])).fetchone()
-    if existing:
-        conn.execute("UPDATE payments SET status = ?, subscription_id = COALESCE(?, subscription_id), "
-                     "updated_at = ? WHERE id = ?", (status, subscription_id, now, existing["id"]))
-    elif is_first_result:
-        conn.execute("UPDATE payments SET status = ?, payhere_payment_id = ?, subscription_id = ?, "
-                     "updated_at = ? WHERE id = ?",
-                     (status, payment_id, subscription_id, now, order["id"]))
-    else:
-        conn.execute("INSERT INTO payments (user_id, order_id, plan, amount, currency, status, "
-                     "payhere_payment_id, subscription_id, created_at, updated_at) "
-                     "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                     (order["user_id"], order["order_id"], order["plan"], order["amount"],
-                      order["currency"], status, payment_id, subscription_id, now, now))
+def _record(conn, order, status, payment_id, subscription_id, paid_on=None):
+    """Upsert the order's single history row (order_id is UNIQUE): monthly
+    charges and repeated notifications update it, never add rows."""
+    conn.execute(
+        "UPDATE payments SET status = ?, payhere_payment_id = COALESCE(?, payhere_payment_id), "
+        "subscription_id = COALESCE(?, subscription_id), updated_at = ?, "
+        "paid_at = COALESCE(?, paid_at) WHERE id = ?",
+        (status, payment_id, subscription_id, db.now(), paid_on, order["id"]))
 
 
-def _activate(conn, order, user, subscription_id, renews_at):
-    if user["subscription_id"] and subscription_id and user["subscription_id"] != subscription_id:
-        log.warning("user %s started subscription %s while %s is still on file — "
-                    "cancel the old one in the PayHere portal",
-                    user["id"], subscription_id, user["subscription_id"])
+def _next_billing_date(item_rec_date_next, paid_on):
+    """PayHere's item_rec_date_next if it is a future date, else paid_on +
+    1 month (the sandbox reports the payment day itself as "next")."""
+    try:
+        given = date.fromisoformat(str(item_rec_date_next or "")[:10])
+        if given > paid_on:
+            return given.isoformat()
+    except ValueError:
+        pass
+    return _one_month_from(paid_on).isoformat()
+
+
+def _activate(conn, order, user, subscription_id, renews_at, new_subscription):
+    """Give the user the order's plan. A new subscription also clears any
+    scheduled cancel/downgrade (the old subscription is cancelled after
+    commit, see _after_payment)."""
     conn.execute("UPDATE users SET plan = ?, plan_status = 'active', "
-                 "subscription_id = COALESCE(?, subscription_id), plan_renews_at = ? WHERE id = ?",
+                 "subscription_id = COALESCE(?, subscription_id), plan_renews_at = ?"
+                 + (", scheduled_plan = NULL" if new_subscription else "") + " WHERE id = ?",
                  (order["plan"], subscription_id, renews_at, user["id"]))
     return f"paid: user {user['id']} -> {order['plan']}"
 
@@ -407,26 +424,36 @@ def _apply(conn, form, sig_ok, dedupe_key):
         return f"user {user['id']} downgraded to basic ({reason})"
 
     if status_code == STATUS_SUCCESS:
-        _record(conn, order, "paid", payment_id, subscription_id, is_first_result)
+        paid_on = date.today()
+        _record(conn, order, "paid", payment_id, subscription_id, paid_on.isoformat())
         if is_first_result or about_current:
-            return 200, _activate(conn, order, user, subscription_id,
-                                  form.get("item_rec_date_next") or None), True
+            renews = _next_billing_date(form.get("item_rec_date_next"), paid_on)
+            return 200, _activate(conn, order, user, subscription_id, renews,
+                                  new_subscription=is_first_result), True
         return 200, "paid: installment of a non-current subscription, plan unchanged", True
 
     if status_code == STATUS_PENDING:
         return 200, "pending: nothing to do yet", True
 
     if status_code in _FAILURE_STATUS:
-        _record(conn, order, _FAILURE_STATUS[status_code], payment_id, subscription_id,
-                is_first_result)
         result = f"{_FAILURE_STATUS[status_code]}"
+        if is_first_result or status_code == STATUS_CHARGEDBACK:
+            _record(conn, order, _FAILURE_STATUS[status_code], payment_id, subscription_id)
+        else:
+            # A failed renewal keeps the paid history row; PayHere retries and
+            # the plan lapses by itself when plan_renews_at passes.
+            result = f"renewal {result}"
         stopped = message_type == "RECURRING_STOPPED" or form.get("item_rec_status") == "-1"
         if status_code == STATUS_CHARGEDBACK and about_current:
             result += "; " + downgrade("chargeback")
         elif stopped and about_current:
-            result += "; " + downgrade("subscription cancelled")
-        # A failed renewal does not downgrade at once: PayHere retries, and the
-        # plan lapses by itself when plan_renews_at passes (effective_plan).
+            if user["scheduled_plan"]:
+                # We cancelled it ourselves (cancel/downgrade): paid access
+                # continues until plan_renews_at.
+                result += "; subscription stopped as scheduled, access until " \
+                          f"{user['plan_renews_at']}"
+            else:
+                result += "; " + downgrade("subscription cancelled")
         return 200, result, True
 
     return 400, f"rejected: unknown status_code {status_code!r}", False
@@ -478,11 +505,11 @@ def verify_order(order_id, force=False, http=None):
                                 f"{order['currency']} {order['amount']}"
 
     payment_id = str(match.get("payment_id") or "") or None
-    paid_on = str(match.get("date") or "")[:10]
     try:
-        renews_at = _one_month_from(date.fromisoformat(paid_on)).isoformat()
+        paid_on = date.fromisoformat(str(match.get("date") or "")[:10])
     except ValueError:
-        renews_at = _one_month_from(date.today()).isoformat()
+        paid_on = date.today()
+    renews_at = _next_billing_date(None, paid_on)
     dedupe_key = f"{order_id}|{payment_id or ''}|RETRIEVAL"
     payload = json.dumps({"source": "retrieval_api", "payment_id": payment_id,
                           "status": match.get("status"), "amount": match.get("amount"),
@@ -493,12 +520,128 @@ def verify_order(order_id, force=False, http=None):
         if fresh["status"] not in OPEN_STATUSES:  # notify won the race
             return 200, f"already {fresh['status']}", False
         user = conn.execute("SELECT * FROM users WHERE id = ?", (order["user_id"],)).fetchone()
-        _record(conn, fresh, "paid", payment_id, None, True)
-        return 200, _activate(conn, fresh, user, None, renews_at) + " (via Retrieval API)", True
+        _record(conn, fresh, "paid", payment_id, None, paid_on.isoformat())
+        return 200, _activate(conn, fresh, user, None, renews_at, new_subscription=True) \
+            + " (via Retrieval API)", True
 
     _status, result, processed = _in_transaction(
         apply, order_id, payment_id, STATUS_SUCCESS, "RETRIEVAL_API", True, dedupe_key, payload)
     log.info("verify order_id=%s action=%s", order_id, result)
     if processed:
-        _notify_plan_change(order["user_id"])
+        _after_payment(order_id)
     return db.get_order(order_id)["status"], result
+
+
+# ── Plan changes: upgrade clean-up, cancel, downgrade ────────
+def _after_payment(order_id):
+    """After a confirmed payment (committed): cancel the subscription this
+    order replaces (Pro -> Plus upgrade) and re-gate open dashboards."""
+    order = db.get_order(order_id)
+    if order["status"] == "paid" and order["old_subscription_id"]:
+        cancel_subscription_for(order["user_id"], order["old_subscription_id"],
+                                f"replaced by {order['plan']} ({order_id})")
+    _notify_plan_change(order["user_id"])
+
+
+def cancel_subscription_for(user_id, subscription_id, reason):
+    """Ask PayHere to stop charging subscription_id. Never silent: a failure
+    is stored as 'cancel_pending' and listed on the admin page.
+    Returns (ok, detail)."""
+    existing = db.get_cancellation(subscription_id)
+    if existing is not None and existing["status"] == "cancelled":
+        return True, "already cancelled"
+    if not payhere_api.configured():
+        status, error = "cancel_pending", "PayHere API key (PAYHERE_APP_ID/SECRET) not configured"
+    else:
+        try:
+            payhere_api.cancel_subscription(subscription_id)
+            status, error = "cancelled", None
+        except (payhere_api.RetrievalError, requests.RequestException, ValueError, KeyError) as exc:
+            status, error = "cancel_pending", str(exc)
+    db.record_cancellation(user_id, subscription_id, reason, status, error)
+    (log.info if status == "cancelled" else log.error)(
+        "cancel subscription=%s user=%s reason=%s -> %s%s", subscription_id, user_id, reason,
+        status, f" ({error})" if error else "")
+    return status == "cancelled", error or "cancelled"
+
+
+def schedule_change(user, target_plan, reason):
+    """Cancel the user's running subscription now and switch to target_plan
+    ('basic' = cancel, or a cheaper plan) when the paid period ends.
+    Returns (ok, detail)."""
+    ok, detail = cancel_subscription_for(user["id"], user["subscription_id"], reason)
+    if user["plan_renews_at"]:
+        db.update_user(user["id"], scheduled_plan=target_plan)
+    else:  # no known period end: the change applies right away
+        db.update_user(user["id"], scheduled_plan=target_plan, plan_renews_at=date.today().isoformat())
+    db.apply_due_changes(db.get_user(user["id"]))
+    _notify_plan_change(user["id"])
+    return ok, detail
+
+
+def _pending_note(ok):
+    return "" if ok else " PayHere hasn't confirmed the cancellation yet — the admin has been notified."
+
+
+@bp.route("/billing/cancel-subscription", methods=["POST"])
+@user_required
+def cancel_subscription():
+    _check_csrf()
+    user = current_user()
+    if not db.has_active_subscription(user):
+        flash("You don't have an active paid subscription.", "error")
+        return redirect(url_for("auth.account"))
+    ok, _ = schedule_change(user, "basic", "cancelled by user")
+    user = db.get_user(user["id"])
+    if user["plan"] == "basic":
+        flash("Subscription cancelled — you're on Basic now." + _pending_note(ok), "success")
+    else:
+        flash(f"Subscription cancelled. {PLANS[user['plan']]['name']} stays active until "
+              f"{user['plan_renews_at']}, then you move to Basic." + _pending_note(ok), "success")
+    return redirect(url_for("auth.account"))
+
+
+@bp.route("/billing/downgrade/<plan_key>", methods=["POST"])
+@user_required
+def downgrade(plan_key):
+    _check_csrf()
+    user = current_user()
+    if plan_key not in PLANS or PLANS[plan_key]["price_usd"] == 0:
+        abort(404)
+    if not db.has_active_subscription(user) or \
+            PLANS[plan_key]["price_usd"] >= PLANS[user["plan"]]["price_usd"]:
+        flash(f"{PLANS[plan_key]['name']} isn't a downgrade from your current plan.", "error")
+        return redirect(url_for("auth.pricing"))
+    ok, _ = schedule_change(user, plan_key, f"downgrade to {plan_key} by user")
+    user = db.get_user(user["id"])
+    flash(f"Your plan will change to {PLANS[plan_key]['name']} on {user['plan_renews_at']}. "
+          f"You keep {PLANS[user['plan']]['name']} until then; we'll ask you to confirm the "
+          f"{PLANS[plan_key]['name']} payment at that point." + _pending_note(ok), "success")
+    return redirect(url_for("auth.account"))
+
+
+@bp.route("/admin/users/<int:user_id>/cancel-subscription", methods=["POST"])
+@admin_required
+def admin_cancel_subscription(user_id):
+    _check_csrf()
+    user = db.get_user(user_id)
+    if user is None or not db.has_active_subscription(user):
+        flash("That user has no active paid subscription.", "error")
+        return redirect(url_for("auth.admin_users"))
+    ok, detail = schedule_change(user, "basic", "cancelled by admin")
+    flash(f"{user['email']}: subscription cancelled ({'confirmed by PayHere' if ok else detail}); "
+          f"paid access until {user['plan_renews_at'] or 'now'}.", "success" if ok else "error")
+    return redirect(url_for("auth.admin_users"))
+
+
+@bp.route("/admin/cancellations/<subscription_id>/retry", methods=["POST"])
+@admin_required
+def admin_retry_cancellation(subscription_id):
+    _check_csrf()
+    pending = db.get_cancellation(subscription_id)
+    if pending is None:
+        abort(404)
+    ok, detail = cancel_subscription_for(pending["user_id"], subscription_id, pending["reason"])
+    flash(f"Subscription {subscription_id}: {'cancelled' if ok else 'still pending — ' + detail}",
+          "success" if ok else "error")
+    return redirect(url_for("auth.admin_users"))
