@@ -1,5 +1,9 @@
 flask>=3.0
 flask-socketio>=5.3
+# password hashing for user accounts (also installed with Flask)
+werkzeug>=3.0
+# PayHere Retrieval API (payment verification)
+requests>=2.31
 python-dotenv>=1.0
 opencv-python>=4.8
 ultralytics>=8.1

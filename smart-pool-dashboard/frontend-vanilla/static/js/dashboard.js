@@ -9,10 +9,14 @@ const socket = io();
 // ── Connection ──────────────────────────────────────────────
 socket.on('connect', () => setConn(true));
 socket.on('disconnect', () => setConn(false));
+// The server refuses the socket when the login session is missing/expired
+socket.on('connect_error', (err) => {
+  if (err && err.message === 'login_required') window.location.href = '/login?next=/';
+});
 
 function setConn(ok) {
-  document.getElementById('connDot').className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
-  document.getElementById('connText').textContent = ok ? 'Connected' : 'Disconnected';
+  // Navbar indicator (#connDot / #connText) and its copy in the mobile panel
+  window.setNavConnection(ok);
 }
 
 // ── Controls ────────────────────────────────────────────────
@@ -157,8 +161,62 @@ socket.on('drowning_alert', () => {
 });
 
 // ── Renderers ───────────────────────────────────────────────
+// Locked modules arrive from the server already emptied; this only
+// shows their locked overlay, the plan badge and the report lock. The
+// page is rendered locked already — this keeps it in sync when the plan
+// changes while the dashboard is open.
+const PLAN_LOCKS = {
+  drowning: 'drowningCard', garbage: 'garbageCard',
+  decision_engine: 'decisionCard', reports: 'reportBtn',
+};
+// ── One-time "plan upgraded" toast ─────────────────────────
+// Remembers the last plan this browser saw per user; when the plan now
+// unlocks features the old one didn't, says so once.
+const AG = window.AQUAGUARD || {};
+const PLAN_SEEN_KEY = 'aquaguard.lastPlan.' + AG.viewer;
+function readSeenPlan() {
+  try { return localStorage.getItem(PLAN_SEEN_KEY); } catch (e) { return null; }
+}
+function rememberPlan(key) {
+  try { localStorage.setItem(PLAN_SEEN_KEY, key); } catch (e) { /* storage blocked */ }
+}
+function joinWords(words) {
+  return words.length < 2 ? words.join('')
+    : words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1];
+}
+function checkPlanUpgrade(newKey) {
+  if (!newKey || !AG.plans || !AG.plans[newKey]) return;
+  const oldKey = readSeenPlan();
+  rememberPlan(newKey);
+  if (!oldKey || oldKey === newKey || !AG.plans[oldKey]) return;  // first visit / no change
+  const gained = AG.plans[newKey].features.filter(f => !AG.plans[oldKey].features.includes(f));
+  if (!gained.length) return;  // downgrade
+  const words = gained.map(f => (AG.featureShort && AG.featureShort[f]) || f);
+  showPlanToast('Your plan is now ' + AG.plans[newKey].name.toUpperCase() + ' — '
+    + joinWords(words) + ' unlocked.');
+}
+let planToastTimer;
+function showPlanToast(text) {
+  document.getElementById('planToastText').textContent = text;
+  document.getElementById('planToast').hidden = false;
+  clearTimeout(planToastTimer);
+  planToastTimer = setTimeout(hidePlanToast, 9000);
+}
+function hidePlanToast() { document.getElementById('planToast').hidden = true; }
+checkPlanUpgrade(AG.plan);
+
+function applyPlan(plan) {
+  if (!plan || !plan.features) return;
+  checkPlanUpgrade(plan.key);  // plan changed while the dashboard is open
+  window.setNavPlan(plan.key, plan.name);  // navbar badge(s) + Upgrade button
+  for (const [feature, id] of Object.entries(PLAN_LOCKS)) {
+    document.getElementById(id).classList.toggle('locked', !plan.features.includes(feature));
+  }
+}
+
 function updateDashboard(s) {
   if (!s) return;
+  applyPlan(s.plan);
   setText('fps', s.fps);
   setText('frameNum', s.frame_num);
   setText('sessionTime', s.session_time);
@@ -227,7 +285,7 @@ function updateDashboard(s) {
   setSensorVal('turbidity', 'turbidity', s.water_quality.turbidity, fallbackFields);
   setSensorVal('tds', 'tds', s.water_quality.tds, fallbackFields);
   if (s.water_quality.simulated) {
-    setPill('sensorConn', 'SIMULATED', 'warn');
+    setPill('sensorConn', 'SIMULATED', 'info');
   } else if (s.water_quality.warming_up) {
     setPill('sensorConn', 'WARMING UP', 'warn');
   } else if (s.water_quality.sensor_connected) {
@@ -246,7 +304,8 @@ function updateDashboard(s) {
   risk.className = 'risk-badge ' + s.decision.overall_risk.toLowerCase();
   setPill('maintUrgency', s.decision.maintenance_urgency,
     s.decision.maintenance_urgency === 'LOW' ? 'safe'
-      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger' : 'warn'));
+      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger'
+        : (s.decision.maintenance_urgency === 'HIGH' ? 'high' : 'warn')));
   const notes = document.getElementById('decisionNotes');
   notes.innerHTML = s.decision.notes.length
     ? s.decision.notes.map(n => `<li>${n}</li>`).join('')
@@ -340,6 +399,8 @@ function updateGarbageIncidents(g) {
 // ── PDF report ──────────────────────────────────────────────
 function generateReport() {
   const btn = document.getElementById('reportBtn');
+  // Locked on plans without "reports" (the server also answers 403)
+  if (btn.classList.contains('locked')) { window.location.href = '/pricing'; return; }
   if (!btn) return;
   const label = btn.querySelector('.btn-label');
   const err = document.getElementById('reportError');
@@ -354,7 +415,10 @@ function generateReport() {
         let msg = 'Report generation failed';
         try {
           const data = await resp.json();
-          if (data && data.error) msg = data.error;
+          if (data && data.error === 'upgrade_required') {
+            msg = 'Reports need the ' + data.required_plan.charAt(0).toUpperCase()
+              + data.required_plan.slice(1) + ' plan';
+          } else if (data && data.error) msg = data.error;
         } catch (e) { /* keep default message */ }
         throw new Error(msg);
       }

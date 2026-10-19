@@ -23,6 +23,9 @@ class SystemState:
             "camera_connected": False,
             # CameraManager.status(): source, type, backend, connected, fps
             "camera": {},
+            # Viewer's plan {key, name, features} — filled per viewer by
+            # core/gating.filter_state before anything is sent
+            "plan": {},
             "crowd": {
                 "swimmer_count": 0,
                 "density_level": "LOW",
