@@ -5,3 +5,5 @@ ml/datasets/train/
 ml/datasets/valid/
 ml/datasets/test/
 results/
+yolo11*.pt
+yolov8*.pt
