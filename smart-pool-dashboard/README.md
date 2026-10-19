@@ -66,6 +66,18 @@ cd frontend && npm install && npm run dev    # http://localhost:3000
 
 Real hardware: see `.env.example` (CAMERA_SOURCE, SENSOR_SOURCE).
 
+### First run
+The crowd model (stock YOLO11m, ~40 MB) is **downloaded automatically the
+first time the backend starts** — internet is needed once. It is saved to
+`components/component1-crowd-maintenance/models/yolo11m.pt` (gitignored)
+and reused offline afterwards. The startup log should show:
+```
+Crowd model: yolo11m.pt — COCO/person mode, conf=0.3, imgsz=640
+```
+No `.env` entries are needed for this; the recommended crowd values are the
+code defaults. If the download fails, the backend prints a warning with the
+reason and falls back to `best_swimmer_model.pt` (or simulation).
+
 ## Stack decision (asked: "Python backend + Next.js — good?")
 Yes. Flask-SocketIO backend (Component 3's proven stack) + Next.js
 consuming it via socket.io-client is professional and panel-impressive.
