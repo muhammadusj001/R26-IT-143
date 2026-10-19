@@ -69,6 +69,10 @@ class GarbageDetector:
         # default so the integrated dashboard frame stays clean (Component 1
         # already draws people); standalone_demo.py turns it on.
         self.show_hud = config.SHOW_HUD if show_hud is None else show_hud
+        # People boxes with their live action + arm lines. On by default, also on
+        # the integrated dashboard, so throw / drop analysis is visible there.
+        self.show_people = self.show_hud or config.SHOW_PEOPLE
+        self.device = "cpu"
         self.model_path = Path(model_path) if model_path else config.GARBAGE_MODEL_PATH
         self.conf_threshold = conf_threshold if conf_threshold is not None else config.CONF
         # The dashboard passes DETECTION_IMGSZ (640) to every detector. Floating
@@ -127,8 +131,38 @@ class GarbageDetector:
         self._last_info = None                     # sticky info for dashboard
         self._fps = deque(maxlen=20)
 
+    # ── device (Apple GPU / NVIDIA GPU / CPU) ──────────────────
+    @staticmethod
+    def _pick_device():
+        want = config.DEVICE.lower()
+        if want != "auto":
+            return want
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda:0"
+            if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                return "mps"          # Apple Silicon Mac GPU: several times faster
+        except Exception:  # noqa: BLE001
+            pass
+        return "cpu"
+
+    def _predict(self, model, source, **kw):
+        """Run a YOLO model on self.device; if the GPU path fails once, fall
+        back to CPU for the rest of the session (never crash the dashboard)."""
+        try:
+            return model.predict(source, device=self.device, verbose=False, **kw)
+        except Exception as exc:  # noqa: BLE001
+            if self.device == "cpu":
+                raise
+            print(f"Component 4: {self.device} failed ({type(exc).__name__}), using CPU")
+            self.device = "cpu"
+            return model.predict(source, device="cpu", verbose=False, **kw)
+
     # ── loading ─────────────────────────────────────────────────
     def load(self):
+        self.device = self._pick_device()
+        print(f"Component 4: running models on {self.device}")
         self._load_source_model()
         self._load_open_vocab()
         if not self.model_path.exists():
@@ -395,8 +429,9 @@ class GarbageDetector:
         """Detections >= conf. Weak ones (>= 0.12) are remembered too: an object
         the normal model sees even weakly is NOT under the water surface."""
         out, weak = [], []
-        results = self.model(frame, conf=min(self.conf_threshold, config.WEAK_CONF),
-                             iou=config.IOU, imgsz=self.imgsz, verbose=False)
+        results = self._predict(self.model, frame,
+                                conf=min(self.conf_threshold, config.WEAK_CONF),
+                                iou=config.IOU, imgsz=self.imgsz)
         for r in results:
             for box in r.boxes:
                 name = self.model.names[int(box.cls[0])]
@@ -445,9 +480,8 @@ class GarbageDetector:
     def _detect_open_vocab(self, frame):
         out = []
         try:
-            results = self.ov_model.predict(frame, conf=config.OPEN_VOCAB_CONF,
-                                            imgsz=config.OPEN_VOCAB_IMGSZ, verbose=False,
-                                            retina_masks=False)
+            results = self._predict(self.ov_model, frame, conf=config.OPEN_VOCAB_CONF,
+                                    imgsz=config.OPEN_VOCAB_IMGSZ, retina_masks=False)
         except Exception:  # noqa: BLE001
             return out
         for r in results:
@@ -533,8 +567,9 @@ class GarbageDetector:
         classes = [config.PERSON_CLASS] + list(config.ANIMAL_CLASSES) + list(
             config.COCO_LITTER_CLASSES)
         litter_conf = min(0.25, config.COCO_FALLBACK_CONF)
-        results = self.source_model(frame, conf=min(config.SOURCE_CONF, litter_conf),
-                                    classes=classes, imgsz=640, verbose=False)
+        results = self._predict(self.source_model, frame,
+                                conf=min(config.SOURCE_CONF, litter_conf),
+                                classes=classes, imgsz=640)
         for r in results:
             for box in r.boxes:
                 cid = int(box.cls[0])
@@ -721,6 +756,11 @@ class GarbageDetector:
             feet_x, feet_y = (tr.box[0] + tr.box[2]) / 2, tr.box[3]
             swimmer = self.roi.defined and self.roi.contains(feet_x, feet_y, w, h)
             entries = self.pose.window(tr.id, ts - 1.5, ts)
+            if len(entries) < 3:
+                # Slow PC (few frames per second): use the last 3 pose samples
+                # if they are within 3 s, instead of giving up.
+                recent = self.pose.window(tr.id, ts - 3.0, ts)
+                entries = recent[-3:] if len(recent) >= 2 else entries
             if swimmer:
                 self._actions[tr.id] = ("swimming", 0.0)
                 continue          # strokes look like throws, ignore
@@ -728,7 +768,7 @@ class GarbageDetector:
                 # Too small / far: pose keypoints jitter and look like fast arms.
                 self._actions[tr.id] = ("person (too far for arm analysis)", 0.0)
                 continue
-            if len(entries) < 3:
+            if len(entries) < 2:
                 self._actions[tr.id] = ("person (arms not visible)" if self.pose.available
                                         else "person (pose off)", 0.0)
                 continue
@@ -796,8 +836,7 @@ class GarbageDetector:
         if not crops:
             return out
         try:
-            results = model.predict(crops, conf=conf, iou=config.IOU, imgsz=imgsz,
-                                    verbose=False)
+            results = self._predict(model, crops, conf=conf, iou=config.IOU, imgsz=imgsz)
         except Exception:  # noqa: BLE001
             return out
         for r, (ox, oy) in zip(results, offsets):
@@ -964,10 +1003,11 @@ class GarbageDetector:
                 continue
             draw_box(frame, x1, y1, x2, y2, f"#{t.id} {t.label} {t.conf:.0%}{tag}",
                      GARBAGE_COLOR if is_garbage else NON_GARBAGE_COLOR)
-        for t in (p_active if self.show_hud else ()):
+        for t in (p_active if self.show_people else ()):
             x1, y1, x2, y2 = t.box
             act = self._actions.get(t.id, ("person", 0))[0]
-            draw_box(frame, x1, y1, x2, y2, f"person #{t.id}: {act}", PERSON_COLOR, thickness=1)
+            draw_box(frame, x1, y1, x2, y2, f"C4 person #{t.id}: {act}", PERSON_COLOR,
+                     thickness=1)
             last = self.pose.latest(t.id)
             if last and ts - last["ts"] < 0.5:
                 kp = last["kp"]
@@ -975,7 +1015,7 @@ class GarbageDetector:
                     if kp[a][2] > 0.3 and kp[b][2] > 0.3:
                         cv2.line(frame, (int(kp[a][0]), int(kp[a][1])),
                                  (int(kp[b][0]), int(kp[b][1])), (0, 255, 0), 2)
-        for t in (l_active if self.show_hud else ()):
+        for t in (l_active if self.show_people else ()):
             x1, y1, x2, y2 = t.box
             draw_box(frame, x1, y1, x2, y2, f"{t.label} (hand/air)", LITTER_COLOR, thickness=1)
             pts = [(int(p[1]), int(p[2])) for p in t.points]
