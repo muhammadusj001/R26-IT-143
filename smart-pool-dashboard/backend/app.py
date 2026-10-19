@@ -20,11 +20,43 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Mount the four component repos (git submodules) onto the import path
+# Mount the four component repos (git submodules) onto the import path.
+# Folder names may carry a suffix (e.g. "component4-garbage-detection V2.2")
+# or be nested one level after unzipping; find the folder that really
+# contains the Python package. For Component 4, prefer the v2 copy
+# (the one with component4_garbage/submersion.py).
 _BASE = Path(__file__).resolve().parents[1]
-for _repo in ("component1-crowd-maintenance", "component2-water-quality",
-              "component3-drowning-detection", "component4-garbage-detection"):
-    sys.path.insert(0, str(_BASE / "components" / _repo))
+_COMPONENTS = _BASE / "components"
+_REPOS = {
+    "component1-crowd-maintenance": ("component1_crowd", None),
+    "component2-water-quality": (None, None),
+    "component3-drowning-detection": ("component3_drowning", None),
+    "component4-garbage-detection": ("component4_garbage", "submersion.py"),
+}
+
+
+def _find_repo(name, package, prefer_file):
+    candidates = []
+    for p in sorted(_COMPONENTS.glob(name + "*")):
+        if p.is_dir():
+            candidates += [p] + [c for c in p.iterdir() if c.is_dir()]
+    if package:
+        with_pkg = [c for c in candidates if (c / package / "__init__.py").exists()
+                    or (c / package).is_dir()]
+        if prefer_file:
+            best = [c for c in with_pkg if (c / package / prefer_file).exists()]
+            if best:
+                return best[0]
+        if with_pkg:
+            return with_pkg[0]
+    return _COMPONENTS / name
+
+
+for _repo, (_pkg, _prefer) in _REPOS.items():
+    _path = _find_repo(_repo, _pkg, _prefer)
+    sys.path.insert(0, str(_path))
+    if _repo.startswith("component4"):
+        print(f"  Component 4 folder: {_path}")
 
 import cv2
 from flask import Flask, render_template, send_file, jsonify, after_this_request
@@ -57,6 +89,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 _STAGGER_CYCLE = 6
 _CROWD_STAGES = (0, 3)
 _DROWNING_STAGES = (1, 2, 4)
+_GARBAGE_STAGES = (5,)
+# C4_FULL_RATE=1: Component 4 runs on EVERY processed frame (throw / drop
+# detection needs to see the arm move several times per second); crowd and
+# drowning keep their own stages above.
+_C4_FULL_RATE = os.getenv("C4_FULL_RATE", "0") == "1"
 # DROWNING_CONSEC_FRAMES is expressed in camera frames. Drowning runs
 # once every PROCESS_EVERY_N_FRAMES * cycle / runs camera frames, so
 # convert to "detector runs" covering about the same real time (min 5,
@@ -130,6 +167,9 @@ def vision_loop():
             continue
 
         processed_num += 1
+        # Clean copy (no boxes from Components 1/3) for Component 4's
+        # splash / pool-floor analysis.
+        raw = frame.copy()
 
         # ── CPU optimisation: stagger the 3 vision models ─────
         # Running crowd + drowning + garbage detection on every single
@@ -166,8 +206,9 @@ def vision_loop():
         elif stage in _DROWNING_STAGES:
             frame, drown_result, drown_alert = drowning.process(frame)
             state.update_module("drowning", drown_result)
-        else:
-            frame, garbage_result, garbage_alert = garbage.process(frame)
+
+        if stage in _GARBAGE_STAGES or _C4_FULL_RATE:
+            frame, garbage_result, garbage_alert = garbage.process(frame, clean_frame=raw)
             state.update_module("garbage", garbage_result)
 
         if stage not in _DROWNING_STAGES:
@@ -179,8 +220,9 @@ def vision_loop():
             session.record_alert("drowning", drown_message, "danger")
             socketio.emit("drowning_alert", drown_alert)
         if garbage_alert:
-            state.add_alert("garbage", garbage_alert, "warning")
-            session.record_alert("garbage", garbage_alert, "warning")
+            garbage_level = "danger" if garbage_alert.startswith("[HIGH]") else "warning"
+            state.add_alert("garbage", garbage_alert, garbage_level)
+            session.record_alert("garbage", garbage_alert, garbage_level)
 
         # ── Cross-module intelligence (Decision Engine only) ─
         state.update_module("decision", decision_engine.evaluate(state.snapshot()))
@@ -217,6 +259,24 @@ def index():
 @app.route("/api/status")
 def status():
     return state.snapshot()
+
+
+@app.route("/api/garbage/snapshot/<path:name>")
+def garbage_snapshot(name):
+    """Snapshot photo saved by Component 4 for an incident (event_feed[].snapshot)."""
+    from flask import send_from_directory
+    folder = getattr(getattr(garbage, "logger", None), "dir", None)
+    if folder is None:
+        return jsonify({"error": "no snapshots"}), 404
+    return send_from_directory(str(folder), name)
+
+
+@app.route("/api/garbage/events")
+def garbage_events():
+    """Last Component 4 incidents in plain language (for the dashboard list)."""
+    snap = state.snapshot().get("garbage", {})
+    return jsonify({"event_feed": snap.get("event_feed", []),
+                    "event_legend": snap.get("event_legend", {})})
 
 
 @app.route("/api/session/summary")
@@ -304,14 +364,30 @@ def main():
     print(f"  Crowd model   : {crowd.model_status}")
     print(f"  Drowning model: {drowning.model_status}")
     print(f"  Garbage model : {garbage.model_status}")
+    if hasattr(garbage, "status_summary"):
+        print(f"  Component 4   : {garbage.status_summary()}")
+        print(f"  C4 full rate  : {'ON (best for throw/drop)' if _C4_FULL_RATE else 'off (set C4_FULL_RATE=1 for throw/drop demo)'}")
+        import atexit
+        atexit.register(garbage.close)
     water.start()
     print(f"  Water model   : {water.predictor.model_status}")
     print("=" * 60)
-    print(f"  Dashboard: http://localhost:{settings.PORT}")
+    dash_url = f"http://localhost:{settings.PORT}"
+    print(f"  Dashboard: {dash_url}")
+
+    def auto_open():
+        time.sleep(1.5)
+        import webbrowser
+        print(f"\n[+] Opening integrated dashboard at {dash_url} ...\n")
+        webbrowser.open(dash_url)
+
+    threading.Thread(target=auto_open, daemon=True).start()
+
     socketio.run(
         app, host=settings.HOST, port=settings.PORT,
         debug=False, allow_unsafe_werkzeug=True,
     )
+
 
 
 if __name__ == "__main__":
