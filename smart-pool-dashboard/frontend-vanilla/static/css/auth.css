@@ -1,11 +1,6 @@
 /* Accounts, admin page and plan locking — builds on style.css tokens */
 
-/* ── Account bar (auth pages + dashboard header) ───────────── */
-.account-bar { gap: 14px; flex-wrap: wrap; }
-.account-name { font-size: 13px; color: var(--text-dim); }
-.account-link { font-size: 13px; color: var(--text-dim); text-decoration: none; }
-.account-link:hover { color: var(--accent); }
-.logo { color: inherit; }
+/* (Top navbar: see navbar.css) */
 .btn-ghost {
   display: inline-flex; align-items: center; text-decoration: none;
   padding: 6px 14px; font-size: 12.5px;

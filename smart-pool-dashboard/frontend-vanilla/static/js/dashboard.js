@@ -15,8 +15,8 @@ socket.on('connect_error', (err) => {
 });
 
 function setConn(ok) {
-  document.getElementById('connDot').className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
-  document.getElementById('connText').textContent = ok ? 'Connected' : 'Disconnected';
+  // Navbar indicator (#connDot / #connText) and its copy in the mobile panel
+  window.setNavConnection(ok);
 }
 
 // ── Controls ────────────────────────────────────────────────
@@ -208,9 +208,7 @@ checkPlanUpgrade(AG.plan);
 function applyPlan(plan) {
   if (!plan || !plan.features) return;
   checkPlanUpgrade(plan.key);  // plan changed while the dashboard is open
-  const badge = document.getElementById('planBadge');
-  badge.textContent = plan.name.toUpperCase();
-  badge.className = 'pill plan-pill plan-' + plan.key;
+  window.setNavPlan(plan.key, plan.name);  // navbar badge(s) + Upgrade button
   for (const [feature, id] of Object.entries(PLAN_LOCKS)) {
     document.getElementById(id).classList.toggle('locked', !plan.features.includes(feature));
   }

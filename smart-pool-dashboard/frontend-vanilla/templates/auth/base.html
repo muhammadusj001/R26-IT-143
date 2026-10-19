@@ -1,4 +1,5 @@
 {% import "auth/_plan_ui.html" as ui with context %}
+{% import "partials/_navbar.html" as nav with context %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,36 +11,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/navbar.css') }}">
 </head>
 <body class="auth-body {% block body_class %}{% endblock %}">
 
-<header class="header">
-  <div class="header-left">
-    <a class="logo" href="{{ url_for('index') }}" aria-label="Dashboard">
-      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon logo-icon">
-        <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-      </svg>
-    </a>
-    <div class="header-title">
-      <h1>AI Smart Swimming Pool Monitoring System</h1>
-      <p>R26-IT-143</p>
-    </div>
-  </div>
-  <div class="header-right account-bar">
-    <a class="account-link" href="{{ url_for('auth.pricing') }}">Plans</a>
-    {% if current_user %}
-    <a class="account-link" href="{{ url_for('index') }}">Dashboard</a>
-    {% if current_user['is_admin'] %}<a class="account-link" href="{{ url_for('auth.admin_users') }}">Admin</a>{% endif %}
-    {{ ui.plan_badge(current_plan) }}
-    <a class="account-link account-name" href="{{ url_for('auth.account') }}">{{ current_user['name'] }}</a>
-    <a class="btn btn-ghost" href="{{ url_for('auth.logout') }}">Sign out</a>
-    {% else %}
-    <a class="btn btn-ghost" href="{{ url_for('auth.login') }}">Sign in</a>
-    {% endif %}
-  </div>
-</header>
+{{ nav.navbar() }}
 
 <main class="{% block main_class %}auth-main{% endblock %}">
   {% with messages = get_flashed_messages(with_categories=true) %}

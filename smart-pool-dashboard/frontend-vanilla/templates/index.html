@@ -1,4 +1,5 @@
 {% import "auth/_plan_ui.html" as ui with context %}
+{% import "partials/_navbar.html" as nav with context %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,45 +11,19 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/style.css">
 <link rel="stylesheet" href="/static/css/auth.css">
+<link rel="stylesheet" href="/static/css/navbar.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body>
 
-<header class="header">
-  <div class="header-left">
-    <div class="logo">
-      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon logo-icon">
-        <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-      </svg>
-    </div>
-    <div class="header-title">
-      <h1>AI Smart Swimming Pool Monitoring System</h1>
-      <p>R26-IT-143 — Unified Dashboard · 4 AI Modules</p>
-    </div>
+{% call nav.navbar() %}
+  {# Dashboard-only status group: updated live by dashboard.js #}
+  <div class="risk-badge" id="overallRisk" role="status" aria-label="System status">NORMAL</div>
+  <div class="nav-conn connection-status">
+    <span class="status-dot disconnected js-conn-dot" id="connDot"></span>
+    <span class="js-conn-text conn-offline" id="connText">Offline</span>
   </div>
-  <div class="header-right">
-    <div class="risk-badge" id="overallRisk">NORMAL</div>
-    <div class="connection-status">
-      <span class="status-dot disconnected" id="connDot"></span>
-      <span id="connText">Disconnected</span>
-    </div>
-    <div class="account-bar">
-      <a class="account-link" href="{{ url_for('auth.pricing') }}">Plans</a>
-      <a href="{{ url_for('auth.account') if current_user else url_for('auth.pricing') }}"
-         class="pill plan-pill plan-{{ current_plan or 'none' }}" id="planBadge"
-         title="Your plan">{{ plans[current_plan].name|upper if current_plan in plans else '–' }}</a>
-      {% if current_user %}
-      {% if current_user['is_admin'] %}<a class="account-link" href="{{ url_for('auth.admin_users') }}">Admin</a>{% endif %}
-      <a class="account-link account-name" href="{{ url_for('auth.account') }}">{{ current_user['name'] }}</a>
-      <a class="btn btn-ghost" href="{{ url_for('auth.logout') }}">Sign out</a>
-      {% else %}
-      <a class="btn btn-ghost" href="{{ url_for('auth.login') }}">Sign in</a>
-      {% endif %}
-    </div>
-  </div>
-</header>
+{% endcall %}
 
 <main class="main-grid">
 

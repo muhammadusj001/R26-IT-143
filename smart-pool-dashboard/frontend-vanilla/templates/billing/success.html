@@ -119,10 +119,7 @@
     }
     if (!isOwner) return;
     // The header badge was rendered before the upgrade — update it
-    for (const badge of document.querySelectorAll('.js-plan-badge')) {
-      badge.textContent = info.plan_name.toUpperCase();
-      badge.className = 'pill plan-pill js-plan-badge plan-' + info.plan;
-    }
+    if (window.setNavPlan) window.setNavPlan(info.plan, info.plan_name);
     let left = 4;
     const countdown = document.getElementById('payCountdown');
     const timer = setInterval(() => {
