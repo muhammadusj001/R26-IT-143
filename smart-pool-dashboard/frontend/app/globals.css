@@ -139,3 +139,47 @@ body {
 /* Next.js additions */
 .loading { display: flex; flex-direction: column; align-items: center;
   justify-content: center; min-height: 100vh; gap: 8px; }
+
+/* Garbage card: plain-language incidents (C4 v2.3) */
+.garbage-lines {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: 10px; font-size: 12.5px; color: #9fb0c3; white-space: pre-wrap;
+}
+.garbage-lines b { color: #e6edf3; }
+.human-action.throwing { color: #f87171; font-weight: 800; }
+
+.stat { position: relative; }
+.info-icon {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; margin-left: 4px; border-radius: 50%;
+  border: 1px solid #2c4060; font-size: 9px; font-style: italic; font-weight: 700;
+  color: #9fb0c3; cursor: help; outline: none;
+}
+.info-icon:hover, .info-icon:focus { color: #22d3ee; border-color: #22d3ee; }
+.info-tip {
+  display: none; position: absolute; top: calc(100% + 8px); right: -10px; z-index: 20;
+  width: 280px; max-width: 80vw; padding: 10px 12px; border-radius: 8px;
+  background: #16233a; border: 1px solid #2c4060; box-shadow: 0 10px 28px rgba(0,0,0,.5);
+  text-align: left; font-style: normal; font-size: 11.5px; font-weight: 400;
+  line-height: 1.45; color: #9fb0c3;
+}
+.info-icon:hover .info-tip, .info-icon:focus .info-tip { display: flex; flex-direction: column; gap: 5px; }
+.info-tip b { color: #e6edf3; }
+.info-tip-head { color: #22d3ee !important; margin-bottom: 2px; }
+
+.incident-feed { margin-top: 10px; }
+.incident-feed-title { font-size: 11px; color: #7d8da1; text-transform: uppercase; margin-bottom: 6px; }
+.incident-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.incident-item {
+  display: flex; gap: 10px; align-items: flex-start; cursor: help;
+  padding: 7px 10px; border-radius: 7px; background: #0d1725;
+}
+.incident-thumb { flex-shrink: 0; cursor: zoom-in; }
+.incident-thumb img { display: block; width: 64px; height: 48px; object-fit: cover; border-radius: 6px; }
+.incident-body { min-width: 0; flex: 1; font-size: 12.5px; }
+.incident-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.incident-time { font-family: monospace; font-size: 11px; color: #62738a; }
+.incident-top .pill { padding: 1px 8px; font-size: 10px; }
+.incident-meta { color: #9fb0c3; margin-top: 2px; }
+.incident-intent { color: #c3d0de; margin-top: 2px; }
+.incident-reason { color: #62738a; font-size: 11px; margin-top: 2px; }

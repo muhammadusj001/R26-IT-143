@@ -5,3 +5,8 @@ ml/datasets/train/
 ml/datasets/valid/
 ml/datasets/test/
 results/
+events/
+intent_clips/
+dataset_capture/
+screenshot_*.jpg
+*.mp4

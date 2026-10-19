@@ -26,11 +26,43 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Mount the four component repos (git submodules) onto the import path
+# Mount the four component repos (git submodules) onto the import path.
+# Folder names may carry a suffix (e.g. "component4-garbage-detection V2.2")
+# or be nested one level after unzipping; find the folder that really
+# contains the Python package. For Component 4, prefer the v2 copy
+# (the one with component4_garbage/submersion.py).
 _BASE = Path(__file__).resolve().parents[1]
-for _repo in ("component1-crowd-maintenance", "component2-water-quality",
-              "component3-drowning-detection", "component4-garbage-detection"):
-    sys.path.insert(0, str(_BASE / "components" / _repo))
+_COMPONENTS = _BASE / "components"
+_REPOS = {
+    "component1-crowd-maintenance": ("component1_crowd", None),
+    "component2-water-quality": (None, None),
+    "component3-drowning-detection": ("component3_drowning", None),
+    "component4-garbage-detection": ("component4_garbage", "submersion.py"),
+}
+
+
+def _find_repo(name, package, prefer_file):
+    candidates = []
+    for p in sorted(_COMPONENTS.glob(name + "*")):
+        if p.is_dir():
+            candidates += [p] + [c for c in p.iterdir() if c.is_dir()]
+    if package:
+        with_pkg = [c for c in candidates if (c / package / "__init__.py").exists()
+                    or (c / package).is_dir()]
+        if prefer_file:
+            best = [c for c in with_pkg if (c / package / prefer_file).exists()]
+            if best:
+                return best[0]
+        if with_pkg:
+            return with_pkg[0]
+    return _COMPONENTS / name
+
+
+for _repo, (_pkg, _prefer) in _REPOS.items():
+    _path = _find_repo(_repo, _pkg, _prefer)
+    sys.path.insert(0, str(_path))
+    if _repo.startswith("component4"):
+        print(f"  Component 4 folder: {_path}")
 
 import cv2
 from flask import Flask, render_template, send_file, jsonify, after_this_request, redirect, request
@@ -98,6 +130,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 #   pro   (no garbage)           -> crowd, drowning, drowning, crowd, drowning
 #   basic (no drowning/garbage)  -> crowd on every processed frame
 _FULL_SCHEDULE = ("crowd", "drowning", "drowning", "crowd", "drowning", "garbage")
+# C4_FULL_RATE=1: Component 4 runs on EVERY processed frame (throw / drop
+# detection needs to see the arm move several times per second); crowd and
+# drowning keep their own turns above. Only when the plan includes garbage.
+_C4_FULL_RATE = os.getenv("C4_FULL_RATE", "0") == "1"
 # DROWNING_CONSEC_FRAMES is expressed in camera frames. Drowning runs
 # once every PROCESS_EVERY_N_FRAMES * cycle / runs camera frames, so
 # convert to "detector runs" covering about the same real time (min 5,
@@ -189,6 +225,7 @@ def vision_loop(plan_key=None):
     plan_key = resolve_plan_key(plan_key or settings.ACTIVE_PLAN)
     schedule = tuple(m for m in _FULL_SCHEDULE if has_feature(plan_key, m))
     drowning_enabled = "drowning" in schedule
+    garbage_enabled = "garbage" in schedule
     decision_enabled = has_feature(plan_key, "decision_engine")
 
     if not camera.open():
@@ -224,6 +261,9 @@ def vision_loop(plan_key=None):
             continue
 
         processed_num += 1
+        # Clean copy (no boxes from Components 1/3) for Component 4's
+        # splash / pool-floor analysis; also the overlay-free view.
+        clean = frame.copy()
 
         # ── CPU optimisation: stagger the 3 vision models ─────
         # Running crowd + drowning + garbage detection on every single
@@ -240,14 +280,10 @@ def vision_loop(plan_key=None):
         drown_alert = None
         garbage_alert = None
 
-        # Viewers on lower plans get a frame without locked overlays, so
-        # keep an undrawn copy when one of them is watching.
+        # Viewers on lower plans get a frame without locked overlays.
         groups = _viewer_groups()
         tiers = {_overlay_tier(p) for p in groups}
-        raw = None
-        if (module == "drowning" and "basic" in tiers) or \
-                (module == "garbage" and tiers - {"plus"}):
-            raw = frame.copy()
+        run_garbage = garbage_enabled and (module == "garbage" or _C4_FULL_RATE)
 
         if module == "crowd":
             frame, crowd_result = crowd.process(frame)
@@ -269,24 +305,29 @@ def vision_loop(plan_key=None):
         elif module == "drowning":
             frame, drown_result, drown_alert = drowning.process(frame)
             state.update_module("drowning", drown_result)
-        elif module == "garbage":
-            frame, garbage_result, garbage_alert = garbage.process(frame)
-            state.update_module("garbage", garbage_result)
 
         # Crowd overlays only (crowd frames) or no overlays (other frames)
         crowd_only = None
         if "basic" in tiers:
-            crowd_only = raw if raw is not None else frame.copy()
+            crowd_only = frame.copy() if module == "crowd" else clean
+
+        # Pro viewers must not see garbage boxes: keep the frame as it was
+        # before Component 4 draws on it.
+        no_garbage = None
+        if run_garbage:
+            if "pro" in tiers:
+                no_garbage = frame.copy()
+            frame, garbage_result, garbage_alert = garbage.process(frame, clean_frame=clean)
+            state.update_module("garbage", garbage_result)
 
         if drowning_enabled and module != "drowning":
             frame = drowning.draw_last(frame)
+            if no_garbage is not None:
+                no_garbage = drowning.draw_last(no_garbage)
 
         views = {"plus": frame, "basic": crowd_only}
         if "pro" in tiers:
-            if module == "garbage":
-                views["pro"] = drowning.draw_last(raw.copy()) if drowning_enabled else raw
-            else:
-                views["pro"] = frame
+            views["pro"] = no_garbage if no_garbage is not None else frame
 
         if drown_alert:
             drown_message = f"DROWNING DETECTED — {drown_alert['count']} person(s)"
@@ -297,8 +338,9 @@ def vision_loop(plan_key=None):
                     for sid in sids:
                         socketio.emit("drowning_alert", drown_alert, to=sid)
         if garbage_alert:
-            state.add_alert("garbage", garbage_alert, "warning")
-            session.record_alert("garbage", garbage_alert, "warning")
+            garbage_level = "danger" if garbage_alert.startswith("[HIGH]") else "warning"
+            state.add_alert("garbage", garbage_alert, garbage_level)
+            session.record_alert("garbage", garbage_alert, garbage_level)
 
         # ── Cross-module intelligence (Decision Engine only) ─
         if decision_enabled:
@@ -346,6 +388,39 @@ def index():
 @login_required
 def status():
     return filter_state(state.snapshot(), current_plan())
+
+
+def _garbage_locked():
+    """403 response when the viewer's plan doesn't include garbage, else None."""
+    if has_feature(current_plan(), "garbage"):
+        return None
+    return jsonify({"error": "upgrade_required", "required_plan": required_plan("garbage")}), 403
+
+
+@app.route("/api/garbage/snapshot/<path:name>")
+@login_required
+def garbage_snapshot(name):
+    """Snapshot photo saved by Component 4 for an incident (event_feed[].snapshot)."""
+    from flask import send_from_directory
+    locked = _garbage_locked()
+    if locked:
+        return locked
+    folder = getattr(getattr(garbage, "logger", None), "dir", None)
+    if folder is None:
+        return jsonify({"error": "no snapshots"}), 404
+    return send_from_directory(str(folder), name)
+
+
+@app.route("/api/garbage/events")
+@login_required
+def garbage_events():
+    """Last Component 4 incidents in plain language (for the dashboard list)."""
+    locked = _garbage_locked()
+    if locked:
+        return locked
+    snap = state.snapshot().get("garbage", {})
+    return jsonify({"event_feed": snap.get("event_feed", []),
+                    "event_legend": snap.get("event_legend", {})})
 
 
 @app.route("/api/session/summary")
@@ -464,14 +539,30 @@ def main():
     print(f"  Crowd model   : {crowd.model_status}")
     print(f"  Drowning model: {drowning.model_status}")
     print(f"  Garbage model : {garbage.model_status}")
+    if hasattr(garbage, "status_summary"):
+        print(f"  Component 4   : {garbage.status_summary()}")
+        print(f"  C4 full rate  : {'ON (best for throw/drop)' if _C4_FULL_RATE else 'off (set C4_FULL_RATE=1 for throw/drop demo)'}")
+        import atexit
+        atexit.register(garbage.close)
     water.start()
     print(f"  Water model   : {water.predictor.model_status}")
     print("=" * 60)
-    print(f"  Dashboard: http://localhost:{settings.PORT}")
+    dash_url = f"http://localhost:{settings.PORT}"
+    print(f"  Dashboard: {dash_url}")
+
+    def auto_open():
+        time.sleep(1.5)
+        import webbrowser
+        print(f"\n[+] Opening integrated dashboard at {dash_url} ...\n")
+        webbrowser.open(dash_url)
+
+    threading.Thread(target=auto_open, daemon=True).start()
+
     socketio.run(
         app, host=settings.HOST, port=settings.PORT,
         debug=False, allow_unsafe_werkzeug=True,
     )
+
 
 
 if __name__ == "__main__":
