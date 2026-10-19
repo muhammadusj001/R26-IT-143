@@ -284,7 +284,7 @@ function updateDashboard(s) {
   setSensorVal('turbidity', 'turbidity', s.water_quality.turbidity, fallbackFields);
   setSensorVal('tds', 'tds', s.water_quality.tds, fallbackFields);
   if (s.water_quality.simulated) {
-    setPill('sensorConn', 'SIMULATED', 'warn');
+    setPill('sensorConn', 'SIMULATED', 'info');
   } else if (s.water_quality.warming_up) {
     setPill('sensorConn', 'WARMING UP', 'warn');
   } else if (s.water_quality.sensor_connected) {
@@ -303,7 +303,8 @@ function updateDashboard(s) {
   risk.className = 'risk-badge ' + s.decision.overall_risk.toLowerCase();
   setPill('maintUrgency', s.decision.maintenance_urgency,
     s.decision.maintenance_urgency === 'LOW' ? 'safe'
-      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger' : 'warn'));
+      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger'
+        : (s.decision.maintenance_urgency === 'HIGH' ? 'high' : 'warn')));
   const notes = document.getElementById('decisionNotes');
   notes.innerHTML = s.decision.notes.length
     ? s.decision.notes.map(n => `<li>${n}</li>`).join('')

@@ -15,7 +15,7 @@
   <p class="auth-sub">{% if order_id %}Order <span class="mono">{{ order_id }}</span> is unknown.{% else %}No order was given.{% endif %}
     If you just paid, your plan is activated as soon as PayHere confirms it — check your account.</p>
   <div class="account-actions pay-actions">
-    <a class="btn btn-start" href="{{ account_url }}">View Account</a>
+    <a class="btn btn-primary" href="{{ account_url }}">View Account</a>
     <a class="btn btn-ghost" href="{{ dash_url }}">Open dashboard</a>
   </div>
 </section>
@@ -50,7 +50,7 @@
     <p class="pay-renews" id="payRenews" hidden>Renews on <b class="mono" id="payRenewsDate"></b></p>
     {% if is_owner %}
     <div class="account-actions pay-actions">
-      <a class="btn btn-start" href="{{ dash_url }}">Go to Dashboard</a>
+      <a class="btn btn-primary" href="{{ dash_url }}">Go to Dashboard</a>
       <a class="btn btn-ghost" href="{{ account_url }}">View Account</a>
     </div>
     <p class="pay-redirect" id="payRedirect">Opening the dashboard in <b id="payCountdown">4</b> s…</p>
@@ -58,7 +58,7 @@
     <p class="auth-sub pay-elsewhere">You're not signed in on this address. Open the dashboard where you
       normally sign in — your new plan is already active there.</p>
     <div class="account-actions pay-actions">
-      <a class="btn btn-start" href="{{ dash_url }}">Open dashboard</a>
+      <a class="btn btn-primary" href="{{ dash_url }}">Open dashboard</a>
     </div>
     {% endif %}
   </div>
@@ -72,7 +72,7 @@
     <p class="auth-sub">PayHere hasn't confirmed order <span class="mono">{{ order['order_id'] }}</span> yet.
       Your plan switches to {{ plan.name }} automatically once it does — check again in a moment.</p>
     <div class="account-actions pay-actions">
-      <button type="button" class="btn btn-start" id="payCheckAgain">Check again</button>
+      <button type="button" class="btn btn-primary" id="payCheckAgain">Check again</button>
       <a class="btn btn-ghost" href="{{ account_url }}">View Account</a>
     </div>
   </div>
@@ -86,7 +86,7 @@
     <p class="auth-sub">PayHere reported the payment as <b id="payFailedStatus"></b>.
       You have not been upgraded and nothing was charged for this order.</p>
     <div class="account-actions pay-actions">
-      <a class="btn btn-start" href="{{ pricing_url }}">Try again</a>
+      <a class="btn btn-primary" href="{{ pricing_url }}">Try again</a>
       <a class="btn btn-ghost" href="{{ dash_url }}">Dashboard</a>
     </div>
   </div>

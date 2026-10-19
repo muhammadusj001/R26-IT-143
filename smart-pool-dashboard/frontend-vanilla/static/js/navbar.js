@@ -52,6 +52,26 @@
     if (mq.matches) setOpen(burger, panel, false);
   });
 
+  // ── Light / dark theme (light by default, remembered per browser) ──
+  const THEME_KEY = 'aquaguard.theme';
+  function applyTheme(theme) {
+    if (theme === 'dark') document.documentElement.dataset.theme = 'dark';
+    else delete document.documentElement.dataset.theme;
+    for (const btn of document.querySelectorAll('.js-theme-toggle')) {
+      btn.setAttribute('aria-pressed', String(theme === 'dark'));
+      btn.querySelector('.js-theme-label').textContent = theme === 'dark' ? 'Light theme' : 'Dark theme';
+    }
+  }
+  applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  for (const btn of document.querySelectorAll('.js-theme-toggle')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      applyTheme(next);
+      try { localStorage.setItem(THEME_KEY, next); } catch (err) { /* storage blocked */ }
+    });
+  }
+
   // ── Live updates used by dashboard.js and the payment page ──
   window.setNavPlan = function (key, name) {
     for (const badge of document.querySelectorAll('.js-plan-badge')) {

@@ -16,6 +16,14 @@
 </svg>
 {%- endmacro %}
 
+{% macro _theme_toggle(role=None) -%}
+<button type="button" class="nav-menu-item js-theme-toggle"{% if role %} role="{{ role }}"{% endif %} aria-pressed="false">
+  <svg class="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+  <svg class="theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+  <span class="js-theme-label">Dark theme</span>
+</button>
+{%- endmacro %}
+
 {% macro _plan_badge() -%}
 {% if current_plan in plans %}
 <a class="pill plan-pill js-plan-badge plan-{{ current_plan }}" href="{{ url_for('auth.pricing') }}"
@@ -78,6 +86,7 @@
           <div class="nav-menu-sep" role="separator"></div>
           <a class="nav-menu-item" role="menuitem" href="{{ url_for('auth.account') }}">Account</a>
           <a class="nav-menu-item" role="menuitem" href="{{ url_for('auth.pricing') }}">Plans</a>
+          {{ _theme_toggle('menuitem') }}
           <div class="nav-menu-sep" role="separator"></div>
           <a class="nav-menu-item nav-menu-danger" role="menuitem" href="{{ url_for('auth.logout') }}">Sign out</a>
         </div>
@@ -114,6 +123,7 @@
     </div>
     {% endif %}
     <div class="nav-panel-user">
+      {{ _theme_toggle() }}
       {% if current_user %}
       <div class="nav-panel-who">
         <span class="nav-avatar" aria-hidden="true">{{ initials }}</span>

@@ -29,7 +29,7 @@
 
     <div class="price-action">
       {% if not current_user %}
-        <a class="btn btn-start price-btn" href="{{ url_for('auth.register') }}">Create account</a>
+        <a class="btn btn-primary price-btn" href="{{ url_for('auth.register') }}">Create account</a>
       {% elif kind == 'current' %}
         <span class="btn price-btn price-current">Current plan</span>
       {% elif plan.price_usd == 0 %}
@@ -41,7 +41,7 @@
         <span class="btn price-btn price-unavailable" title="Online payment is not set up on this server">
           Billing not configured — ask admin</span>
       {% else %}
-        <a class="btn price-btn {{ 'btn-start' if kind == 'upgrade' else 'btn-ghost' }}"
+        <a class="btn price-btn {{ 'btn-primary' if kind == 'upgrade' else 'btn-ghost' }}"
            href="{{ url_for('billing.checkout', plan_key=key) }}">{{ kind|capitalize }}</a>
       {% endif %}
     </div>
