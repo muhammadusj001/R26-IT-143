@@ -9,10 +9,14 @@ const socket = io();
 // ── Connection ──────────────────────────────────────────────
 socket.on('connect', () => setConn(true));
 socket.on('disconnect', () => setConn(false));
+// The server refuses the socket when the login session is missing/expired
+socket.on('connect_error', (err) => {
+  if (err && err.message === 'login_required') window.location.href = '/login?next=/';
+});
 
 function setConn(ok) {
-  document.getElementById('connDot').className = 'status-dot ' + (ok ? 'connected' : 'disconnected');
-  document.getElementById('connText').textContent = ok ? 'Connected' : 'Disconnected';
+  // Navbar indicator (#connDot / #connText) and its copy in the mobile panel
+  window.setNavConnection(ok);
 }
 
 // ── Controls ────────────────────────────────────────────────
@@ -157,8 +161,62 @@ socket.on('drowning_alert', () => {
 });
 
 // ── Renderers ───────────────────────────────────────────────
+// Locked modules arrive from the server already emptied; this only
+// shows their locked overlay, the plan badge and the report lock. The
+// page is rendered locked already — this keeps it in sync when the plan
+// changes while the dashboard is open.
+const PLAN_LOCKS = {
+  drowning: 'drowningCard', garbage: 'garbageCard',
+  decision_engine: 'decisionCard', reports: 'reportBtn',
+};
+// ── One-time "plan upgraded" toast ─────────────────────────
+// Remembers the last plan this browser saw per user; when the plan now
+// unlocks features the old one didn't, says so once.
+const AG = window.AQUAGUARD || {};
+const PLAN_SEEN_KEY = 'aquaguard.lastPlan.' + AG.viewer;
+function readSeenPlan() {
+  try { return localStorage.getItem(PLAN_SEEN_KEY); } catch (e) { return null; }
+}
+function rememberPlan(key) {
+  try { localStorage.setItem(PLAN_SEEN_KEY, key); } catch (e) { /* storage blocked */ }
+}
+function joinWords(words) {
+  return words.length < 2 ? words.join('')
+    : words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1];
+}
+function checkPlanUpgrade(newKey) {
+  if (!newKey || !AG.plans || !AG.plans[newKey]) return;
+  const oldKey = readSeenPlan();
+  rememberPlan(newKey);
+  if (!oldKey || oldKey === newKey || !AG.plans[oldKey]) return;  // first visit / no change
+  const gained = AG.plans[newKey].features.filter(f => !AG.plans[oldKey].features.includes(f));
+  if (!gained.length) return;  // downgrade
+  const words = gained.map(f => (AG.featureShort && AG.featureShort[f]) || f);
+  showPlanToast('Your plan is now ' + AG.plans[newKey].name.toUpperCase() + ' — '
+    + joinWords(words) + ' unlocked.');
+}
+let planToastTimer;
+function showPlanToast(text) {
+  document.getElementById('planToastText').textContent = text;
+  document.getElementById('planToast').hidden = false;
+  clearTimeout(planToastTimer);
+  planToastTimer = setTimeout(hidePlanToast, 9000);
+}
+function hidePlanToast() { document.getElementById('planToast').hidden = true; }
+checkPlanUpgrade(AG.plan);
+
+function applyPlan(plan) {
+  if (!plan || !plan.features) return;
+  checkPlanUpgrade(plan.key);  // plan changed while the dashboard is open
+  window.setNavPlan(plan.key, plan.name);  // navbar badge(s) + Upgrade button
+  for (const [feature, id] of Object.entries(PLAN_LOCKS)) {
+    document.getElementById(id).classList.toggle('locked', !plan.features.includes(feature));
+  }
+}
+
 function updateDashboard(s) {
   if (!s) return;
+  applyPlan(s.plan);
   setText('fps', s.fps);
   setText('frameNum', s.frame_num);
   setText('sessionTime', s.session_time);
@@ -217,6 +275,7 @@ function updateDashboard(s) {
     setText('garbageSource', 'No intrusion detected');
     setText('garbageIntent', '');
   }
+  updateGarbageIncidents(s.garbage);
 
   // Water quality
   const fallbackFields = new Set(s.water_quality.fallback_fields || []);
@@ -226,7 +285,7 @@ function updateDashboard(s) {
   setSensorVal('turbidity', 'turbidity', s.water_quality.turbidity, fallbackFields);
   setSensorVal('tds', 'tds', s.water_quality.tds, fallbackFields);
   if (s.water_quality.simulated) {
-    setPill('sensorConn', 'SIMULATED', 'warn');
+    setPill('sensorConn', 'SIMULATED', 'info');
   } else if (s.water_quality.warming_up) {
     setPill('sensorConn', 'WARMING UP', 'warn');
   } else if (s.water_quality.sensor_connected) {
@@ -245,7 +304,8 @@ function updateDashboard(s) {
   risk.className = 'risk-badge ' + s.decision.overall_risk.toLowerCase();
   setPill('maintUrgency', s.decision.maintenance_urgency,
     s.decision.maintenance_urgency === 'LOW' ? 'safe'
-      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger' : 'warn'));
+      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger'
+        : (s.decision.maintenance_urgency === 'HIGH' ? 'high' : 'warn')));
   const notes = document.getElementById('decisionNotes');
   notes.innerHTML = s.decision.notes.length
     ? s.decision.notes.map(n => `<li>${n}</li>`).join('')
@@ -260,9 +320,87 @@ function updateDashboard(s) {
     : '<li class="muted">No alerts yet</li>';
 }
 
+// ── Garbage incidents (plain-language explanation, C4 v2.3) ─
+// One-line meanings for the (i) tooltip. Titles come from the backend's
+// event_legend when present; these are the fallback and the meanings.
+const INCIDENT_MEANINGS = {
+  GARBAGE_IN_POOL: ['Garbage on the water surface', 'Garbage confirmed floating in the pool.'],
+  SUBMERGED_GARBAGE: ['Garbage under the water', 'Garbage seen below the surface - remove it from the floor.'],
+  SUNK_OBJECT: ['Object sank', 'Something vanished inside the pool (often with a splash) - probably on the floor.'],
+  THROW_NO_FLOATING_OBJECT: ['Throw seen, nothing floating', 'Someone made a throwing movement but nothing floated - it may have sunk.'],
+  UNDERWATER_OBJECT: ['New object on the pool floor', 'Something new has stayed still on the pool floor for several seconds.'],
+};
+let lastLegendKey = null;
+let lastFeedKey = null;
+
+function updateGarbageIncidents(g) {
+  g = g || {};
+  setText('garbageSurface', num(g.surface_count));
+  setText('garbageUnderwater', num(g.underwater_count));
+
+  const action = (typeof g.human_action === 'string' && g.human_action) ? g.human_action : '–';
+  const actEl = document.getElementById('garbageAction');
+  if (actEl) {
+    actEl.textContent = action;
+    actEl.classList.toggle('throwing', action.toUpperCase().startsWith('THROWING'));
+  }
+
+  // Legend tooltip — rebuilt only when the legend changes
+  const legend = (g.event_legend && typeof g.event_legend === 'object') ? g.event_legend : {};
+  const legendKey = JSON.stringify(legend);
+  if (legendKey !== lastLegendKey) {
+    lastLegendKey = legendKey;
+    const types = Object.keys(INCIDENT_MEANINGS);
+    Object.keys(legend).forEach(t => { if (!types.includes(t)) types.push(t); });
+    const tip = document.getElementById('garbageLegend');
+    if (tip) {
+      tip.innerHTML = '<b class="info-tip-head">Incident = one confirmed garbage event</b>' +
+        types.map(t => {
+          const title = legend[t] || (INCIDENT_MEANINGS[t] || [t])[0];
+          const meaning = (INCIDENT_MEANINGS[t] || [])[1] || '';
+          return `<span class="info-tip-row"><b>${esc(title)}</b>${meaning ? ' — ' + esc(meaning) : ''}</span>`;
+        }).join('');
+    }
+  }
+
+  // Newest 5 incidents — re-rendered only when the feed changes so the
+  // thumbnails don't reload on every frame.
+  const feed = Array.isArray(g.event_feed)
+    ? g.event_feed.filter(ev => ev && typeof ev === 'object').slice(0, 5) : [];
+  const feedKey = JSON.stringify(feed);
+  if (feedKey === lastFeedKey) return;
+  lastFeedKey = feedKey;
+  const list = document.getElementById('garbageFeed');
+  if (!list) return;
+  if (!feed.length) {
+    list.innerHTML = '<li class="muted">No incidents yet</li>';
+    return;
+  }
+  list.innerHTML = feed.map(ev => {
+    const risk = String(ev.risk || '').toUpperCase();
+    const riskCls = risk === 'HIGH' ? 'danger' : (risk === 'MEDIUM' ? 'warn' : '');
+    const pos = ev.position === 'underwater' ? 'under water'
+      : (ev.position === 'surface' ? 'surface' : (ev.position || ''));
+    const meta = [ev.object, pos].filter(Boolean).map(esc).join(' · ');
+    const snap = ev.snapshot ? '/api/garbage/snapshot/' + encodeURIComponent(ev.snapshot) : '';
+    return `<li class="incident-item" title="${esc(ev.explanation || ev.message || '')}">` +
+      (snap ? `<a class="incident-thumb" href="${snap}" target="_blank" rel="noopener"><img src="${snap}" alt="incident snapshot" loading="lazy" onerror="this.parentNode.style.display='none'"></a>` : '') +
+      '<div class="incident-body">' +
+        `<div class="incident-top"><span class="incident-time">${esc(ev.time || '')}</span>` +
+        `<b class="incident-title">${esc(ev.title || ev.type || 'Incident')}</b>` +
+        (risk ? `<span class="pill ${riskCls}">${esc(risk)}</span>` : '') + '</div>' +
+        (meta ? `<div class="incident-meta">${meta}</div>` : '') +
+        (ev.intent_text ? `<div class="incident-intent">${esc(ev.intent_text)}</div>` : '') +
+        (ev.reason ? `<div class="incident-reason">${esc(ev.reason)}</div>` : '') +
+      '</div></li>';
+  }).join('');
+}
+
 // ── PDF report ──────────────────────────────────────────────
 function generateReport() {
   const btn = document.getElementById('reportBtn');
+  // Locked on plans without "reports" (the server also answers 403)
+  if (btn.classList.contains('locked')) { window.location.href = '/pricing'; return; }
   if (!btn) return;
   const label = btn.querySelector('.btn-label');
   const err = document.getElementById('reportError');
@@ -277,7 +415,10 @@ function generateReport() {
         let msg = 'Report generation failed';
         try {
           const data = await resp.json();
-          if (data && data.error) msg = data.error;
+          if (data && data.error === 'upgrade_required') {
+            msg = 'Reports need the ' + data.required_plan.charAt(0).toUpperCase()
+              + data.required_plan.slice(1) + ' plan';
+          } else if (data && data.error) msg = data.error;
         } catch (e) { /* keep default message */ }
         throw new Error(msg);
       }
@@ -330,6 +471,12 @@ function setPill(id, text, cls) {
   if (e) { e.textContent = text; e.className = 'pill ' + cls; }
 }
 function fmt(v) { return (v === null || v === undefined) ? '–' : v; }
+function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
+function esc(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 function flashCard(id) {
   const c = document.getElementById(id);
   c.classList.add('flash');

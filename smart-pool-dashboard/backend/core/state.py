@@ -23,6 +23,9 @@ class SystemState:
             "camera_connected": False,
             # CameraManager.status(): source, type, backend, connected, fps
             "camera": {},
+            # Viewer's plan {key, name, features} — filled per viewer by
+            # core/gating.filter_state before anything is sent
+            "plan": {},
             "crowd": {
                 "swimmer_count": 0,
                 "density_level": "LOW",
@@ -57,6 +60,15 @@ class SystemState:
                 "intent_score": 0.0,
                 "intent_confidence": 0,
                 "risk_level": "NORMAL",
+                # v2.3 plain-language incident fields
+                "surface_count": 0,
+                "underwater_count": 0,
+                "underwater_labels": [],
+                "human_action": "",
+                "actions": [],
+                "last_throw_sec_ago": None,
+                "event_feed": [],
+                "event_legend": {},
             },
             "water_quality": {
                 "ph": None,

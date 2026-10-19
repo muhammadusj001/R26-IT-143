@@ -1,0 +1,21 @@
+{% extends "auth/base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block body_class %}auth-entry{% endblock %}
+{% block content %}
+<section class="card auth-card">
+  <h2 class="auth-title">Sign in</h2>
+  <p class="auth-sub">Monitor your pool with the features of your plan.</p>
+  <form method="post" action="{{ url_for('auth.login') }}" class="auth-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Email
+      <input type="email" name="email" value="{{ email }}" autocomplete="email" required autofocus>
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+  </form>
+  <p class="auth-switch">No account yet? <a href="{{ url_for('auth.register') }}">Create one</a></p>
+</section>
+{% endblock %}

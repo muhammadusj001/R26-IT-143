@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const BACKEND =
+export const BACKEND =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
 
 export function useSocket() {

@@ -1,3 +1,5 @@
+{% import "auth/_plan_ui.html" as ui with context %}
+{% import "partials/_navbar.html" as nav with context %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,33 +9,22 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+{% include "partials/_theme_head.html" %}
 <link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/auth.css">
+<link rel="stylesheet" href="/static/css/navbar.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body>
 
-<header class="header">
-  <div class="header-left">
-    <div class="logo">
-      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon logo-icon">
-        <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-        <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.6 2 5.1 2 2.6 0 2.6-2 5.2-2 1.3 0 1.9.5 2.5 1"/>
-      </svg>
-    </div>
-    <div class="header-title">
-      <h1>AI Smart Swimming Pool Monitoring System</h1>
-      <p>R26-IT-143 — Unified Dashboard · 4 AI Modules</p>
-    </div>
+{% call nav.navbar() %}
+  {# Dashboard-only status group: updated live by dashboard.js #}
+  <div class="risk-badge" id="overallRisk" role="status" aria-label="System status">NORMAL</div>
+  <div class="nav-conn connection-status">
+    <span class="status-dot disconnected js-conn-dot" id="connDot"></span>
+    <span class="js-conn-text conn-offline" id="connText">Offline</span>
   </div>
-  <div class="header-right">
-    <div class="risk-badge" id="overallRisk">NORMAL</div>
-    <div class="connection-status">
-      <span class="status-dot disconnected" id="connDot"></span>
-      <span id="connText">Disconnected</span>
-    </div>
-  </div>
-</header>
+{% endcall %}
 
 <main class="main-grid">
 
@@ -47,7 +38,9 @@
         <div class="header-actions">
           <button class="btn btn-start" id="startBtn" onclick="startDetection()">▶ Start</button>
           <button class="btn btn-stop" id="stopBtn" onclick="stopDetection()" disabled>■ Stop</button>
-          <button class="btn btn-report" id="reportBtn" onclick="generateReport()">
+          <button class="btn btn-report {{ ui.locked_class('reports') }}" id="reportBtn" onclick="generateReport()"
+                  title="PDF reports are available in {{ plans[required_plan('reports')].name }}">
+            <span class="report-lock">{{ ui.icon_lock(14) }}</span>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
             <span class="btn-label">Generate Report</span>
           </button>
@@ -70,10 +63,11 @@
       </div>
     </div>
 
-    <div class="card decision-card">
+    <div class="card decision-card {{ ui.locked_class('decision_engine') }}" id="decisionCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
         Decision Engine</h2></div>
+      {{ ui.locked_overlay('decision_engine') }}
       <div class="decision-grid">
         <div>Maintenance urgency: <b id="maintUrgency" class="pill">LOW</b></div>
         <ul id="decisionNotes" class="notes"></ul>
@@ -97,11 +91,12 @@
       <div class="recommendation" id="maintRec">–</div>
     </div>
 
-    <div class="card" id="drowningCard">
+    <div class="card {{ ui.locked_class('drowning') }}" id="drowningCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         Drowning Detection</h2>
         <span class="model-status" id="drownModel">–</span></div>
+      {{ ui.locked_overlay('drowning') }}
       <div class="stat-row">
         <div class="stat"><span class="stat-val ok" id="swimming">0</span><span class="stat-label">Swimming</span></div>
         <div class="stat"><span class="stat-val danger" id="drowningCount">0</span><span class="stat-label">Drowning</span></div>
@@ -111,21 +106,33 @@
         &nbsp;Alerts this session: <b id="totalDrownAlerts">0</b></div>
     </div>
 
-    <div class="card" id="garbageCard">
+    <div class="card {{ ui.locked_class('garbage') }}" id="garbageCard">
       <div class="card-header"><h2>
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         Garbage Detection</h2>
         <span class="model-status" id="garbageModel">–</span></div>
+      {{ ui.locked_overlay('garbage') }}
       <div class="stat-row">
         <div class="stat"><span class="stat-val" id="garbageCount">0</span><span class="stat-label">Objects</span></div>
         <div class="stat"><span class="stat-val" id="garbageStatus">CLEAR</span><span class="stat-label">Status</span></div>
-        <div class="stat"><span class="stat-val" id="garbageEvents">0</span><span class="stat-label">Events</span></div>
+        <div class="stat stat-has-info"><span class="stat-val" id="garbageEvents">0</span><span class="stat-label">Incidents
+          <span class="info-icon" tabindex="0" aria-label="What do incidents mean?">i
+            <span class="info-tip" id="garbageLegend" role="tooltip"></span>
+          </span></span></div>
       </div>
       <div class="garbage-intent">
         <span class="pill safe" id="garbageRisk">NORMAL</span>
         <span id="garbageSource">No intrusion detected</span><span id="garbageIntent"></span>
       </div>
+      <div class="garbage-lines">
+        <div>On surface: <b id="garbageSurface">0</b>&nbsp; | &nbsp;Under water: <b id="garbageUnderwater">0</b></div>
+        <div>Human action: <b id="garbageAction" class="human-action">–</b></div>
+      </div>
       <div class="recommendation" id="garbageLabels">No objects detected</div>
+      <div class="incident-feed">
+        <div class="incident-feed-title">Recent garbage incidents</div>
+        <ul class="incident-list" id="garbageFeed"><li class="muted">No incidents yet</li></ul>
+      </div>
     </div>
 
     <div class="card" id="waterCard">
@@ -168,6 +175,23 @@
   </div>
 </div>
 
+<div class="toast" id="planToast" role="status" aria-live="polite" hidden>
+  <span class="toast-icon" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+  </span>
+  <span id="planToastText"></span>
+  <button class="toast-close" onclick="hidePlanToast()" aria-label="Dismiss">&times;</button>
+</div>
+
+<script>
+  // Plan data for the one-time "plan upgraded" toast (dashboard.js)
+  window.AQUAGUARD = {{ {
+    "viewer": current_user['id'] if current_user else 'demo',
+    "plan": current_plan,
+    "plans": plans,
+    "featureShort": feature_short,
+  }|tojson }};
+</script>
 <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
