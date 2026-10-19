@@ -65,11 +65,14 @@ PERSON_CLASS = 0
 ANIMAL_CLASSES = {14: "bird", 15: "cat", 16: "dog"}
 # COCO objects that are usually litter when they leave a hand:
 # 39 bottle, 41 cup, 40 wine glass, 46 banana, 47 apple, 67 cell phone
-COCO_LITTER_CLASSES = {39: "bottle", 41: "cup", 40: "glass", 46: "banana", 47: "apple"}
+COCO_LITTER_CLASSES = {39: "bottle", 41: "cup", 40: "glass", 46: "banana", 47: "apple",
+                       # white foam food boxes / plates are usually seen by COCO
+                       # as "frisbee" or "bowl": treat them as a food tray
+                       29: "food tray", 45: "food tray"}
 # COCO second opinion for floating bottles/cups the garbage model misses.
 COCO_FALLBACK = os.environ.get("C4_COCO_FALLBACK", "1") == "1"
 COCO_FALLBACK_CONF = _env("C4_COCO_FALLBACK_CONF", 0.30)
-COCO_FALLBACK_LABELS = {"bottle": "bottle", "cup": "cup"}
+COCO_FALLBACK_LABELS = {"bottle": "bottle", "cup": "cup", "food tray": "food tray"}
 # Open-vocabulary detector (YOLOE): finds garbage described in WORDS, incl.
 # types your trained model has never seen (paper, plastic bag, food tray,
 # can). The words are already built into models/pool_garbage_openvocab.pt,
@@ -99,7 +102,7 @@ GARBAGE_MODEL_FALLBACKS = [MODELS_DIR / "swimming_pool_garbage_yolo.pt",
 # enlarged to TILE_IMGSZ before detection, so very small objects (bottle caps,
 # wrappers, far-away pieces) become big enough for the model. 0 = off.
 TILES = _env("C4_TILES", 2, int)
-TILE_EVERY = _env("C4_TILE_EVERY", 3, int)      # refresh tiles on every Nth garbage run
+TILE_EVERY = _env("C4_TILE_EVERY", 4, int)      # refresh tiles on every Nth garbage run
 TILE_OVERLAP = _env("C4_TILE_OVERLAP", 0.2)
 TILE_IMGSZ = _env("C4_TILE_IMGSZ", 640, int)
 TILE_CONF = _env("C4_TILE_CONF", 0.35)
@@ -111,7 +114,7 @@ TILE_CONF = _env("C4_TILE_CONF", 0.35)
 # contrast) and searched again. An object found ONLY after enhancement and
 # with low contrast against the water around it is marked "underwater".
 UNDERWATER = os.environ.get("C4_UNDERWATER", "1") == "1"
-UNDERWATER_EVERY = _env("C4_UNDERWATER_EVERY", 3, int)
+UNDERWATER_EVERY = _env("C4_UNDERWATER_EVERY", 4, int)
 UNDERWATER_CONF = _env("C4_UNDERWATER_CONF", 0.30)
 UNDERWATER_OPEN_VOCAB = os.environ.get("C4_UNDERWATER_OPEN_VOCAB", "0") == "1"
 UNDERWATER_CONTRAST = _env("C4_UNDERWATER_CONTRAST", 18.0)   # Lab distance object vs water
@@ -199,6 +202,12 @@ INTENT_INFO = {
 # Status panel + people/pose overlays on the video. Off by default so the
 # integrated dashboard frame stays clean; standalone_demo.py turns it on.
 SHOW_HUD = os.environ.get("C4_SHOW_HUD", "0") == "1"
+# Person boxes with the live action (THROWING / arm moving / standing) and arm
+# lines, also on the dashboard video. C4_SHOW_PEOPLE=0 hides them.
+SHOW_PEOPLE = os.environ.get("C4_SHOW_PEOPLE", "1") == "1"
+# Where the YOLO models run: auto = Apple GPU (mps) on M1/M2/M3 Macs, NVIDIA GPU
+# (cuda) if present, else CPU. Force with C4_DEVICE=cpu if the GPU path misbehaves.
+DEVICE = os.environ.get("C4_DEVICE", "auto")
 
 # ── Event logging ─────────────────────────────────────────────────
 SAVE_SNAPSHOTS = os.environ.get("C4_SAVE_SNAPSHOTS", "1") == "1"
