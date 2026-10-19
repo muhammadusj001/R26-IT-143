@@ -1,0 +1,1 @@
+-r Swimming-pool-garbage-detection/requirements.txt
