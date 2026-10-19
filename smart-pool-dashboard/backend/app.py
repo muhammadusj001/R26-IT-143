@@ -76,7 +76,7 @@ from core.camera import CameraManager
 from core.state import state
 from core.decision_engine import decision_engine
 from core.gating import filter_state, filter_summary
-from core.plans import has_feature, required_plan, resolve_plan_key
+from core.plans import PLANS, has_feature, required_plan, resolve_plan_key
 from core.session_tracker import SessionTracker
 from core.report_generator import generate_session_report
 from component1_crowd.detector import CrowdDetector
@@ -124,9 +124,10 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # frames as a CPU optimisation — see vision_loop(). With every module
 # unlocked the cycle is 6 processed frames (stage = processed_num % 6):
 #   0 crowd | 1 drowning | 2 drowning | 3 crowd | 4 drowning | 5 garbage
-# i.e. crowd 2/6 (1 in 3), drowning 3/6, garbage 1/6. Modules locked by
-# the plan of the user who pressed Start are removed from the cycle, so
-# only enabled modules take turns:
+# i.e. crowd 2/6 (1 in 3), drowning 3/6, garbage 1/6. Modules no connected
+# viewer can use are removed from the cycle (the schedule follows the
+# HIGHEST plan among connected viewers and is re-evaluated while running,
+# see _effective_plan()), so only enabled modules take turns:
 #   pro   (no garbage)           -> crowd, drowning, drowning, crowd, drowning
 #   basic (no drowning/garbage)  -> crowd on every processed frame
 _FULL_SCHEDULE = ("crowd", "drowning", "drowning", "crowd", "drowning", "garbage")
@@ -198,13 +199,38 @@ def broadcast_state():
             socketio.emit("state_update", payload, to=sid)
 
 
+# Set when the viewers' plans may have changed, so the running vision loop
+# re-evaluates its module schedule now instead of at the next 2 s check.
+_schedule_dirty = threading.Event()
+_SCHEDULE_CHECK_SEC = 2.0
+_SCHEDULE_MODULES = ("crowd", "drowning", "garbage")
+log = logging.getLogger("vision")
+
+
+def _effective_plan(fallback):
+    """Highest plan among connected viewers; fallback when nobody watches.
+    Detection runs for the best plan present — each viewer still only sees
+    what their own plan allows (filter_state / overlay tiers)."""
+    with _viewers_lock:
+        plans = {v["plan"] for v in _viewers.values()}
+    if not plans:
+        return fallback
+    return max(plans, key=lambda p: PLANS[p]["price_usd"])
+
+
+def _build_schedule(plan_key):
+    return tuple(m for m in _FULL_SCHEDULE if has_feature(plan_key, m))
+
+
 def _on_plan_change(user_id):
-    """Admin changed a plan: re-gate that user's open dashboards now."""
+    """A plan changed (admin, upgrade, cancel): re-gate that user's open
+    dashboards and re-evaluate the running module schedule now."""
     plan_key = auth.plan_for(db.get_user(user_id))
     with _viewers_lock:
         for viewer in _viewers.values():
             if viewer["user_id"] == user_id:
                 viewer["plan"] = plan_key
+    _schedule_dirty.set()
     broadcast_state()
 
 
@@ -219,14 +245,16 @@ _last_crowd_density = None
 def vision_loop(plan_key=None):
     """Shared camera loop: one frame feeds all three vision modules.
 
-    plan_key is the plan of the user who pressed Start; without one
-    (CLI / system_check / DEMO_MODE) ACTIVE_PLAN is used."""
+    Modules run for the highest plan among connected viewers, re-checked
+    every _SCHEDULE_CHECK_SEC and immediately on plan changes / new
+    viewers — no Stop/Start needed after an upgrade. With no viewer
+    (CLI / system_check) plan_key or ACTIVE_PLAN is used."""
     global _last_crowd_density
-    plan_key = resolve_plan_key(plan_key or settings.ACTIVE_PLAN)
-    schedule = tuple(m for m in _FULL_SCHEDULE if has_feature(plan_key, m))
-    drowning_enabled = "drowning" in schedule
-    garbage_enabled = "garbage" in schedule
-    decision_enabled = has_feature(plan_key, "decision_engine")
+    fallback = resolve_plan_key(plan_key or settings.ACTIVE_PLAN)
+    active_plan = None
+    schedule = ()
+    drowning_enabled = garbage_enabled = decision_enabled = False
+    next_check = 0.0
 
     if not camera.open():
         state.update_root({"running": False, "camera_connected": False})
@@ -261,6 +289,26 @@ def vision_loop(plan_key=None):
             continue
 
         processed_num += 1
+
+        # ── Module schedule follows the viewers' plans (cheap check) ─
+        now = time.time()
+        if _schedule_dirty.is_set() or now >= next_check:
+            _schedule_dirty.clear()
+            next_check = now + _SCHEDULE_CHECK_SEC
+            plan_now = _effective_plan(fallback)
+            if plan_now != active_plan:
+                active_plan = plan_now
+                schedule = _build_schedule(plan_now)
+                drowning_enabled = "drowning" in schedule
+                garbage_enabled = "garbage" in schedule
+                decision_enabled = has_feature(plan_now, "decision_engine")
+                log.info("Module schedule: %s (plan=%s)",
+                         ", ".join(m for m in _SCHEDULE_MODULES if m in schedule) or "none", plan_now)
+                # Enabled cards that haven't produced a result yet
+                for m in _SCHEDULE_MODULES:
+                    if m in schedule and state.data[m].get("model_status") == "not_loaded":
+                        state.update_module(m, {"model_status": "waiting"})
+
         # Clean copy (no boxes from Components 1/3) for Component 4's
         # splash / pool-floor analysis; also the overlay-free view.
         clean = frame.copy()
@@ -481,6 +529,7 @@ def on_connect(auth_data=None):
     user = current_user()
     with _viewers_lock:
         _viewers[request.sid] = {"user_id": user["id"] if user else None, "plan": plan_key}
+    _schedule_dirty.set()
     emit("state_update", filter_state(state.snapshot(), plan_key))
 
 
@@ -488,6 +537,7 @@ def on_connect(auth_data=None):
 def on_disconnect(*_args):
     with _viewers_lock:
         _viewers.pop(request.sid, None)
+    _schedule_dirty.set()
 
 
 @socketio.on("start_detection")
