@@ -359,7 +359,7 @@ a { color: var(--primary-strong); }
 .garbage-lines b { color: var(--text); font-weight: 600; }
 .garbage-lines b#garbageSurface,
 .garbage-lines b#garbageUnderwater { font-family: "JetBrains Mono", monospace; }
-.human-action.throwing { color: var(--danger); font-weight: 800; }
+.human-action.throwing { color: var(--danger-strong); font-weight: 800; }
 
 /* Incidents (i) tooltip. The garbage card is lifted above its siblings
    so the popup is not painted under the Water Quality card. */
@@ -372,30 +372,30 @@ a { color: var(--primary-strong); }
   font-size: 9px; font-style: italic; font-weight: 700; text-transform: none;
   color: var(--text-dim); cursor: help; outline: none;
 }
-.info-icon:hover, .info-icon:focus { color: var(--accent); border-color: var(--accent); }
+.info-icon:hover, .info-icon:focus { color: var(--primary-strong); border-color: var(--primary); }
 .info-tip {
   display: none; position: absolute; top: calc(100% + 8px); right: -10px; z-index: 20;
   width: 280px; max-width: 80vw; padding: 10px 12px; border-radius: var(--radius-sm);
-  background: #16233a; border: 1px solid var(--border-strong);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
   text-align: left; text-transform: none; letter-spacing: 0; font-style: normal;
   font-size: 11.5px; font-weight: 400; line-height: 1.45; color: var(--text-dim);
 }
 .info-icon:hover .info-tip, .info-icon:focus .info-tip { display: flex; flex-direction: column; gap: 5px; }
 .info-tip b { color: var(--text); font-weight: 600; }
-.info-tip-head { color: var(--accent) !important; margin-bottom: 2px; }
+.info-tip-head { color: var(--primary-strong) !important; margin-bottom: 2px; }
 
 /* Recent garbage incidents */
 .incident-feed { margin-top: var(--gap-sm); }
 .incident-feed-title {
-  font-size: 10.5px; color: #9fb0c5; text-transform: uppercase;
+  font-size: 10.5px; color: var(--text-3); text-transform: uppercase;
   letter-spacing: 0.08em; font-weight: 600; margin-bottom: 8px;
 }
 .incident-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .incident-item {
   display: flex; gap: 10px; align-items: flex-start;
   padding: 8px 10px; border-radius: 8px; cursor: help;
-  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  background: var(--surface); border: 1px solid var(--border);
 }
 .incident-thumb { flex-shrink: 0; cursor: zoom-in; }
 .incident-thumb img {
@@ -408,7 +408,7 @@ a { color: var(--primary-strong); }
 .incident-title { color: var(--text); font-weight: 700; }
 .incident-top .pill { padding: 1px 8px; font-size: 10px; }
 .incident-meta { color: var(--text-dim); margin-top: 2px; }
-.incident-intent { color: #c3d0de; margin-top: 2px; }
+.incident-intent { color: var(--text-2); margin-top: 2px; }
 .incident-reason { color: var(--text-faint); font-size: 11px; margin-top: 2px; }
 
 .recommendation {
