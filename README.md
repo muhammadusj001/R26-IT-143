@@ -24,7 +24,7 @@ The shared dashboard coordinates these modules into a single monitoring experien
 
 ## Branch guide
 
-- main: stable project overview and top-level documentation
+- main: stable release of the complete project
 - development: integrated system with the full unified dashboard
 - component1-crowd-maintenance: Component 1 work
 - component2-water-quality: Component 2 work
@@ -44,9 +44,22 @@ venv\Scripts\activate
 # macOS/Linux
 source venv/bin/activate
 
-pip install -r requirements.txt
+pip install -r smart-pool-dashboard/requirements.txt
+```
+
+Copy `smart-pool-dashboard/.env.example` to `smart-pool-dashboard/.env` and fill in your local values.
+
+## Run
+
+```bash
+# Terminal 1 — backend
 cd smart-pool-dashboard/backend
-python app.py
+python app.py                 # macOS: use PORT=5051 python app.py if port 5000 is busy
+
+# Terminal 2 (optional) — Next.js frontend
+cd smart-pool-dashboard/frontend
+npm install
+npm run dev
 ```
 
 Then open:
@@ -54,6 +67,8 @@ Then open:
 ```text
 http://localhost:5000
 ```
+
+First run: the crowd model (YOLO11m) downloads automatically the first time the backend starts, so internet is needed once — see `smart-pool-dashboard/README.md` → "First run".
 
 ## Hardware and simulation mode
 

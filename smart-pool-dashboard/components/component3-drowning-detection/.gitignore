@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+ml/datasets/train/
+ml/datasets/valid/
+ml/datasets/test/
+results/

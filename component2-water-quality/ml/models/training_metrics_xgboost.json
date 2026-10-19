@@ -1,0 +1,17 @@
+{
+  "model": "XGBClassifier",
+  "accuracy": 1.0,
+  "macro_f1": 1.0,
+  "classes": [
+    "CRITICAL",
+    "SAFE",
+    "WARNING"
+  ],
+  "feature_columns": [
+    "pH",
+    "Temperature",
+    "Chlorine",
+    "Turbidity",
+    "TDS"
+  ]
+}
