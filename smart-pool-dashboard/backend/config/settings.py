@@ -25,13 +25,16 @@ DROWNING_MODEL_PATH = Path(
     os.getenv("DROWNING_MODEL_PATH",
               COMPONENTS_DIR / "component3-drowning-detection" / "models" / "best.pt")
 )
+# Stock COCO YOLO11m counts swimmers far better than the custom
+# single-class models; it is auto-downloaded on first run (see
+# CrowdDetector.load) and cached in the models folder (gitignored).
 CROWD_MODEL_PATH = Path(
     os.getenv(
         "CROWD_MODEL_PATH",
         COMPONENTS_DIR
         / "component1-crowd-maintenance"
         / "models"
-        / "best_swimmer_model.pt"
+        / "yolo11m.pt"
     )
 )
 GARBAGE_MODEL_PATH = Path(
@@ -79,7 +82,7 @@ DROWNING_CONSEC_FRAMES = int(os.getenv("DROWNING_CONSEC_FRAMES", "10"))
 # instead of the shared DETECTION_IMGSZ.
 DROWNING_IMGSZ = int(os.getenv("DROWNING_IMGSZ", "640"))
 
-CROWD_CONF_THRESHOLD = float(os.getenv("CROWD_CONF_THRESHOLD", "0.4"))
+CROWD_CONF_THRESHOLD = float(os.getenv("CROWD_CONF_THRESHOLD", "0.30"))
 GARBAGE_CONF_THRESHOLD = float(os.getenv("GARBAGE_CONF_THRESHOLD", "0.4"))
 
 # ── Crowd density / maintenance thresholds (Component 1 design) ─
@@ -166,4 +169,4 @@ JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "60"))
 MAX_ALERT_HISTORY = int(os.getenv("MAX_ALERT_HISTORY", "10"))
 # Inference resolution passed to all 3 vision detectors (crowd, drowning,
 # garbage). Smaller = faster YOLO inference at some accuracy cost.
-DETECTION_IMGSZ = int(os.getenv("DETECTION_IMGSZ", "480"))
+DETECTION_IMGSZ = int(os.getenv("DETECTION_IMGSZ", "640"))
