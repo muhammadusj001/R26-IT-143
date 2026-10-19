@@ -1,0 +1,136 @@
+{% extends "auth/base.html" %}
+{% block title %}Users{% endblock %}
+{% block main_class %}admin-main{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-header">
+    <h2>Users <span class="sub">({{ users|length }})</span></h2>
+  </div>
+  <p class="auth-sub">Change a user's plan by hand (offline payments, demos). Only an <b>active</b>
+    plan unlocks features; a paid plan past its renewal date falls back to Basic.</p>
+  <div class="table-wrap">
+    <table class="users-table">
+      <thead>
+        <tr>
+          <th>User</th><th>In effect</th><th>Subscription</th><th>Plan · status · renews</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+        {% set paid_sub = u.subscription_id and u.plan != 'basic' and u.plan_status == 'active' %}
+        <tr>
+          <td>
+            <div class="user-name">{{ u.name }}{% if u.is_admin %} <span class="pill admin-pill">ADMIN</span>{% endif %}</div>
+            <div class="user-email">{{ u.email }} · joined {{ u.created_at[:10] }}</div>
+          </td>
+          <td><span class="pill plan-pill plan-{{ u.effective_plan }}">{{ plans[u.effective_plan].name }}</span></td>
+          <td>
+            {% if u.subscription_id %}
+            <div class="mono" title="PayHere subscription id">{{ mask_id(u.subscription_id) }}</div>
+            <div class="user-email">
+              {% if u.scheduled_plan == 'basic' %}cancels {{ (u.plan_renews_at or '')[:10] }}
+              {% elif u.scheduled_plan %}→ {{ plans[u.scheduled_plan].name }} on {{ (u.plan_renews_at or '')[:10] }}
+              {% else %}renews {{ (u.plan_renews_at or '—')[:10] }}{% endif %}
+            </div>
+            {% else %}<span class="user-email">—</span>{% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('auth.admin_set_plan', user_id=u.id) }}" class="plan-form">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <select name="plan" aria-label="Plan for {{ u.email }}">
+                {% for key, p in plans.items() %}
+                <option value="{{ key }}" {% if key == u.plan %}selected{% endif %}>{{ p.name }} — ${{ p.price_usd }}</option>
+                {% endfor %}
+              </select>
+              <select name="plan_status" aria-label="Status for {{ u.email }}">
+                {% for s in statuses %}
+                <option value="{{ s }}" {% if s == u.plan_status %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              <input type="date" name="plan_renews_at" value="{{ (u.plan_renews_at or '')[:10] }}" aria-label="Renews on">
+              <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+          </td>
+          <td>
+            {% if paid_sub and u.scheduled_plan != 'basic' %}
+            <form method="post" action="{{ url_for('billing.admin_cancel_subscription', user_id=u.id) }}"
+                  onsubmit="return confirm('Cancel {{ u.email }}\'s PayHere subscription? They keep {{ plans[u.plan].name }} until {{ (u.plan_renews_at or 'today')[:10] }}.')">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-ghost btn-small btn-danger-outline">Cancel subscription</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if pending_cancellations %}
+<section class="card admin-orders">
+  <div class="card-header">
+    <h2>Cancellations needing attention <span class="sub">({{ pending_cancellations|length }})</span></h2>
+  </div>
+  <p class="auth-sub">PayHere did not confirm these cancellations — the subscription may still be charging.
+    Retry, or cancel it in the PayHere portal.</p>
+  <div class="table-wrap">
+    <table class="users-table">
+      <thead><tr><th>Subscription</th><th>User</th><th>Reason</th><th>Error</th><th></th></tr></thead>
+      <tbody>
+      {% for c in pending_cancellations %}
+        <tr>
+          <td class="mono">{{ c['subscription_id'] }}</td>
+          <td class="user-email">{{ c['email'] }}</td>
+          <td>{{ c['reason'] }}</td>
+          <td class="user-email">{{ c['error'] or '—' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('billing.admin_retry_cancellation', subscription_id=c['subscription_id']) }}">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-ghost btn-small">Retry</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="card admin-orders">
+  <div class="card-header">
+    <h2>Orders waiting for PayHere <span class="sub">({{ open_orders|length }})</span></h2>
+  </div>
+  {% if open_orders %}
+  <div class="table-wrap">
+    <table class="users-table">
+      <thead><tr><th>Order</th><th>User</th><th>Plan</th><th>Amount</th><th>Status</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {% for o in open_orders %}
+        <tr>
+          <td class="mono">{{ o['order_id'] }}</td>
+          <td class="user-email">{{ o['email'] }}</td>
+          <td>{{ plans[o['plan']].name }}</td>
+          <td class="mono">{{ o['currency'] }} {{ o['amount'] }}</td>
+          <td><span class="pill {{ 'warn' if o['status'] == 'pending' else '' }}">{{ o['status']|upper }}</span></td>
+          <td class="mono">{{ o['created_at'][:16] }}</td>
+          <td>
+            {% if payhere_sandbox %}
+            <form method="post" action="{{ url_for('billing.simulate_confirmation', order_id=o['order_id']) }}"
+                  onsubmit="return confirm('Simulate a successful PayHere payment for {{ o['order_id'] }}? The user gets {{ plans[o['plan']].name }}.')">
+              <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-ghost" title="Sandbox only: sends a correctly signed success notification through the real notify handler">Simulate confirmation</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="auth-sub">No open orders.</p>
+  {% endif %}
+</section>
+{% endblock %}

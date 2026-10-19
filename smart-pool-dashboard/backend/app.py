@@ -9,9 +9,15 @@ results into SystemState. WaterQualityMonitor runs independently on its
 own thread. The DecisionEngine fuses all module outputs into
 system-level intelligence. Flask-SocketIO (the stack Component 3
 already used) pushes everything to the single dashboard in real time.
+
+Accounts: every viewer logs in and has their own plan (core/plans.py).
+The vision loop runs the modules unlocked for the user who pressed
+Start; everything sent to a viewer (state, alerts, video overlays,
+reports) is filtered for that viewer's own plan on the server.
 """
 
 import base64
+import logging
 import os
 import sys
 import tempfile
@@ -20,20 +26,57 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Mount the four component repos (git submodules) onto the import path
+# Mount the four component repos (git submodules) onto the import path.
+# Folder names may carry a suffix (e.g. "component4-garbage-detection V2.2")
+# or be nested one level after unzipping; find the folder that really
+# contains the Python package. For Component 4, prefer the v2 copy
+# (the one with component4_garbage/submersion.py).
 _BASE = Path(__file__).resolve().parents[1]
-for _repo in ("component1-crowd-maintenance", "component2-water-quality",
-              "component3-drowning-detection", "component4-garbage-detection"):
-    sys.path.insert(0, str(_BASE / "components" / _repo))
+_COMPONENTS = _BASE / "components"
+_REPOS = {
+    "component1-crowd-maintenance": ("component1_crowd", None),
+    "component2-water-quality": (None, None),
+    "component3-drowning-detection": ("component3_drowning", None),
+    "component4-garbage-detection": ("component4_garbage", "submersion.py"),
+}
+
+
+def _find_repo(name, package, prefer_file):
+    candidates = []
+    for p in sorted(_COMPONENTS.glob(name + "*")):
+        if p.is_dir():
+            candidates += [p] + [c for c in p.iterdir() if c.is_dir()]
+    if package:
+        with_pkg = [c for c in candidates if (c / package / "__init__.py").exists()
+                    or (c / package).is_dir()]
+        if prefer_file:
+            best = [c for c in with_pkg if (c / package / prefer_file).exists()]
+            if best:
+                return best[0]
+        if with_pkg:
+            return with_pkg[0]
+    return _COMPONENTS / name
+
+
+for _repo, (_pkg, _prefer) in _REPOS.items():
+    _path = _find_repo(_repo, _pkg, _prefer)
+    sys.path.insert(0, str(_path))
+    if _repo.startswith("component4"):
+        print(f"  Component 4 folder: {_path}")
 
 import cv2
-from flask import Flask, render_template, send_file, jsonify, after_this_request
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, send_file, jsonify, after_this_request, redirect, request
+from flask_socketio import SocketIO, emit, ConnectionRefusedError
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import settings
+from core import auth, billing, db
+from core.auth import current_plan, current_user, login_required
 from core.camera import CameraManager
 from core.state import state
 from core.decision_engine import decision_engine
+from core.gating import filter_state, filter_summary
+from core.plans import has_feature, required_plan, resolve_plan_key
 from core.session_tracker import SessionTracker
 from core.report_generator import generate_session_report
 from component1_crowd.detector import CrowdDetector
@@ -46,23 +89,58 @@ app = Flask(
     template_folder=str(settings.BASE_DIR / "frontend-vanilla" / "templates"),
     static_folder=str(settings.BASE_DIR / "frontend-vanilla" / "static"),
 )
-app.config["SECRET_KEY"] = settings.SECRET_KEY
+# Behind ngrok / VS Code tunnels TLS ends at the proxy; honour its
+# X-Forwarded-Proto so request.host_url keeps "https" (billing return URLs)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
+app.config.update(
+    SECRET_KEY=settings.SECRET_KEY,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+app.register_blueprint(auth.bp)
+app.register_blueprint(billing.bp)
+
+
+@app.before_request
+def _redirect_127_to_localhost():
+    """127.0.0.1 and localhost get separate login cookies, so send local
+    visitors to one canonical host: http://127.0.0.1:5000/x?y -> http://localhost:5000/x?y.
+    Only the exact 127.0.0.1 host is affected (ngrok, VS Code tunnels and LAN
+    IPs pass through), and only GET/HEAD: a 302 would turn a POST into a GET
+    and drop its body. Socket.IO traffic is left alone."""
+    hostname, sep, port = request.host.partition(":")
+    if hostname != "127.0.0.1" or request.method not in ("GET", "HEAD") \
+            or request.path.startswith(("/socket.io", "/billing/notify")):
+        return None
+    target = f"{request.scheme}://localhost{sep}{port}{request.path}"
+    if request.query_string:
+        target += "?" + request.query_string.decode("latin-1")
+    return redirect(target, code=302)
+db.init_db()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # The vision loop below staggers crowd/drowning/garbage across processed
-# frames as a CPU optimisation — see vision_loop(). Schedule over a
-# 6-processed-frame cycle (stage = processed_num % 6):
+# frames as a CPU optimisation — see vision_loop(). With every module
+# unlocked the cycle is 6 processed frames (stage = processed_num % 6):
 #   0 crowd | 1 drowning | 2 drowning | 3 crowd | 4 drowning | 5 garbage
-# i.e. crowd 2/6 (unchanged, 1 in 3), drowning 3/6, garbage 1/6.
-_STAGGER_CYCLE = 6
-_CROWD_STAGES = (0, 3)
-_DROWNING_STAGES = (1, 2, 4)
+# i.e. crowd 2/6 (1 in 3), drowning 3/6, garbage 1/6. Modules locked by
+# the plan of the user who pressed Start are removed from the cycle, so
+# only enabled modules take turns:
+#   pro   (no garbage)           -> crowd, drowning, drowning, crowd, drowning
+#   basic (no drowning/garbage)  -> crowd on every processed frame
+_FULL_SCHEDULE = ("crowd", "drowning", "drowning", "crowd", "drowning", "garbage")
+# C4_FULL_RATE=1: Component 4 runs on EVERY processed frame (throw / drop
+# detection needs to see the arm move several times per second); crowd and
+# drowning keep their own turns above. Only when the plan includes garbage.
+_C4_FULL_RATE = os.getenv("C4_FULL_RATE", "0") == "1"
 # DROWNING_CONSEC_FRAMES is expressed in camera frames. Drowning runs
 # once every PROCESS_EVERY_N_FRAMES * cycle / runs camera frames, so
 # convert to "detector runs" covering about the same real time (min 5,
-# which is also the detector's minimum smoothing window).
+# which is also the detector's minimum smoothing window). Computed for
+# the full schedule; with garbage locked drowning runs slightly more often.
 _CAMERA_FRAMES_PER_DROWNING_RUN = (
-    settings.PROCESS_EVERY_N_FRAMES * _STAGGER_CYCLE / len(_DROWNING_STAGES)
+    settings.PROCESS_EVERY_N_FRAMES * len(_FULL_SCHEDULE) / _FULL_SCHEDULE.count("drowning")
 )
 _drowning_consec_frames = max(
     5, round(settings.DROWNING_CONSEC_FRAMES / _CAMERA_FRAMES_PER_DROWNING_RUN)
@@ -85,18 +163,71 @@ garbage = GarbageDetector(model_path=settings.GARBAGE_MODEL_PATH,
                           conf_threshold=settings.GARBAGE_CONF_THRESHOLD,
                           imgsz=settings.DETECTION_IMGSZ)
 session = SessionTracker()
-water = WaterQualityMonitor(
-    on_update=lambda: socketio.emit("state_update", state.snapshot()),
-    session_tracker=session,
-)
+
+
+# ── Connected viewers (one entry per Socket.IO connection) ───
+_viewers = {}  # sid -> {"user_id": int | None, "plan": str}
+_viewers_lock = threading.Lock()
+
+
+def _viewer_groups():
+    """{plan_key: [sid, ...]} for everyone currently connected."""
+    groups = {}
+    with _viewers_lock:
+        for sid, viewer in _viewers.items():
+            groups.setdefault(viewer["plan"], []).append(sid)
+    return groups
+
+
+def _overlay_tier(plan_key):
+    """Which video overlays a viewer may see. Plans are nested
+    (basic ⊂ pro ⊂ plus), so three frame variants cover every viewer."""
+    if has_feature(plan_key, "garbage"):
+        return "plus"
+    if has_feature(plan_key, "drowning"):
+        return "pro"
+    return "basic"
+
+
+def broadcast_state():
+    """Send every viewer the shared state filtered for their own plan."""
+    snap = state.snapshot()
+    for plan_key, sids in _viewer_groups().items():
+        payload = filter_state(snap, plan_key)
+        for sid in sids:
+            socketio.emit("state_update", payload, to=sid)
+
+
+def _on_plan_change(user_id):
+    """Admin changed a plan: re-gate that user's open dashboards now."""
+    plan_key = auth.plan_for(db.get_user(user_id))
+    with _viewers_lock:
+        for viewer in _viewers.values():
+            if viewer["user_id"] == user_id:
+                viewer["plan"] = plan_key
+    broadcast_state()
+
+
+auth.plan_change_listeners.append(_on_plan_change)
+
+water = WaterQualityMonitor(on_update=broadcast_state, session_tracker=session)
 
 _vision_thread = None
 _last_crowd_density = None
 
 
-def vision_loop():
-    """Shared camera loop: one frame feeds all three vision modules."""
+def vision_loop(plan_key=None):
+    """Shared camera loop: one frame feeds all three vision modules.
+
+    plan_key is the plan of the user who pressed Start; without one
+    (CLI / system_check / DEMO_MODE) ACTIVE_PLAN is used."""
     global _last_crowd_density
+    plan_key = resolve_plan_key(plan_key or settings.ACTIVE_PLAN)
+    schedule = tuple(m for m in _FULL_SCHEDULE if has_feature(plan_key, m))
+    drowning_enabled = "drowning" in schedule
+    garbage_enabled = "garbage" in schedule
+    decision_enabled = has_feature(plan_key, "decision_engine")
+
     if not camera.open():
         state.update_root({"running": False, "camera_connected": False})
         socketio.emit("camera_error", {"message": f"Cannot open camera: {camera.source}"})
@@ -130,23 +261,31 @@ def vision_loop():
             continue
 
         processed_num += 1
+        # Clean copy (no boxes from Components 1/3) for Component 4's
+        # splash / pool-floor analysis; also the overlay-free view.
+        clean = frame.copy()
 
         # ── CPU optimisation: stagger the 3 vision models ─────
         # Running crowd + drowning + garbage detection on every single
-        # processed frame is the main FPS cost. Instead, each module
-        # gets its own turns in a 6-frame cycle (see _STAGGER_CYCLE):
-        # crowd on stages 0/3, drowning on 1/2/4, garbage on 5 — each
-        # module still runs completely independently, just less often.
+        # processed frame is the main FPS cost. Instead, each enabled
+        # module gets its own turns in the cycle (see _FULL_SCHEDULE);
+        # modules locked by the plan never run — each module still runs
+        # completely independently, just less often.
         # On the frames where a module doesn't run, its previous result
         # simply isn't touched, so state.snapshot() keeps returning its
         # last known values and the dashboard card never goes blank.
         # Drowning boxes are redrawn on its off-frames (draw_last) so the
         # overlay doesn't flicker.
-        stage = processed_num % _STAGGER_CYCLE
+        module = schedule[processed_num % len(schedule)] if schedule else None
         drown_alert = None
         garbage_alert = None
 
-        if stage in _CROWD_STAGES:
+        # Viewers on lower plans get a frame without locked overlays.
+        groups = _viewer_groups()
+        tiers = {_overlay_tier(p) for p in groups}
+        run_garbage = garbage_enabled and (module == "garbage" or _C4_FULL_RATE)
+
+        if module == "crowd":
             frame, crowd_result = crowd.process(frame)
             state.update_module("crowd", crowd_result)
             session.record_crowd(
@@ -163,27 +302,52 @@ def vision_loop():
                 state.add_alert("crowd", crowd_alert, crowd_severity)
                 session.record_alert("crowd", crowd_alert, crowd_severity)
             _last_crowd_density = crowd_density
-        elif stage in _DROWNING_STAGES:
+        elif module == "drowning":
             frame, drown_result, drown_alert = drowning.process(frame)
             state.update_module("drowning", drown_result)
-        else:
-            frame, garbage_result, garbage_alert = garbage.process(frame)
+
+        # Crowd overlays only (crowd frames) or no overlays (other frames)
+        crowd_only = None
+        if "basic" in tiers:
+            crowd_only = frame.copy() if module == "crowd" else clean
+
+        # Pro viewers must not see garbage boxes: keep the frame as it was
+        # before Component 4 draws on it.
+        no_garbage = None
+        if run_garbage:
+            if "pro" in tiers:
+                no_garbage = frame.copy()
+            frame, garbage_result, garbage_alert = garbage.process(frame, clean_frame=clean)
             state.update_module("garbage", garbage_result)
 
-        if stage not in _DROWNING_STAGES:
+        if drowning_enabled and module != "drowning":
             frame = drowning.draw_last(frame)
+            if no_garbage is not None:
+                no_garbage = drowning.draw_last(no_garbage)
+
+        views = {"plus": frame, "basic": crowd_only}
+        if "pro" in tiers:
+            views["pro"] = no_garbage if no_garbage is not None else frame
 
         if drown_alert:
             drown_message = f"DROWNING DETECTED — {drown_alert['count']} person(s)"
             state.add_alert("drowning", drown_message, "danger")
             session.record_alert("drowning", drown_message, "danger")
-            socketio.emit("drowning_alert", drown_alert)
+            for viewer_plan, sids in groups.items():
+                if has_feature(viewer_plan, "drowning"):
+                    for sid in sids:
+                        socketio.emit("drowning_alert", drown_alert, to=sid)
         if garbage_alert:
-            state.add_alert("garbage", garbage_alert, "warning")
-            session.record_alert("garbage", garbage_alert, "warning")
+            garbage_level = "danger" if garbage_alert.startswith("[HIGH]") else "warning"
+            state.add_alert("garbage", garbage_alert, garbage_level)
+            session.record_alert("garbage", garbage_alert, garbage_level)
 
         # ── Cross-module intelligence (Decision Engine only) ─
-        state.update_module("decision", decision_engine.evaluate(state.snapshot()))
+        if decision_enabled:
+            decision = decision_engine.evaluate(state.snapshot())
+        else:
+            decision = decision_engine.neutral()
+        state.update_module("decision", decision)
 
         # ── Session stats ────────────────────────────────────
         elapsed = time.time() - start
@@ -195,14 +359,19 @@ def vision_loop():
             "camera": camera.status(),
         })
 
-        # ── Push frame + full state to dashboard ─────────────
-        _, buffer = cv2.imencode(
-            ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, settings.JPEG_QUALITY]
-        )
-        socketio.emit("frame_update", {
-            "frame": base64.b64encode(buffer).decode("utf-8"),
-            "state": state.snapshot(),
-        })
+        # ── Push frame + state to each viewer, filtered by plan ─
+        encoded = {}
+        for tier in tiers:
+            _, buffer = cv2.imencode(
+                ".jpg", views[tier], [cv2.IMWRITE_JPEG_QUALITY, settings.JPEG_QUALITY]
+            )
+            encoded[tier] = base64.b64encode(buffer).decode("utf-8")
+        snap = state.snapshot()
+        for viewer_plan, sids in groups.items():
+            payload = {"frame": encoded[_overlay_tier(viewer_plan)],
+                       "state": filter_state(snap, viewer_plan)}
+            for sid in sids:
+                socketio.emit("frame_update", payload, to=sid)
         time.sleep(0.02)
 
     camera.release()
@@ -210,22 +379,63 @@ def vision_loop():
 
 # ── Routes ───────────────────────────────────────────────────
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/api/status")
+@login_required
 def status():
-    return state.snapshot()
+    return filter_state(state.snapshot(), current_plan())
+
+
+def _garbage_locked():
+    """403 response when the viewer's plan doesn't include garbage, else None."""
+    if has_feature(current_plan(), "garbage"):
+        return None
+    return jsonify({"error": "upgrade_required", "required_plan": required_plan("garbage")}), 403
+
+
+@app.route("/api/garbage/snapshot/<path:name>")
+@login_required
+def garbage_snapshot(name):
+    """Snapshot photo saved by Component 4 for an incident (event_feed[].snapshot)."""
+    from flask import send_from_directory
+    locked = _garbage_locked()
+    if locked:
+        return locked
+    folder = getattr(getattr(garbage, "logger", None), "dir", None)
+    if folder is None:
+        return jsonify({"error": "no snapshots"}), 404
+    return send_from_directory(str(folder), name)
+
+
+@app.route("/api/garbage/events")
+@login_required
+def garbage_events():
+    """Last Component 4 incidents in plain language (for the dashboard list)."""
+    locked = _garbage_locked()
+    if locked:
+        return locked
+    snap = state.snapshot().get("garbage", {})
+    return jsonify({"event_feed": snap.get("event_feed", []),
+                    "event_legend": snap.get("event_legend", {})})
 
 
 @app.route("/api/session/summary")
+@login_required
 def session_summary():
-    return session.get_summary()
+    return filter_summary(session.get_summary(), current_plan())
 
 
 @app.route("/api/report")
+@login_required
 def download_report():
+    plan_key = current_plan()
+    if not has_feature(plan_key, "reports"):
+        return jsonify({"error": "upgrade_required",
+                        "required_plan": required_plan("reports")}), 403
     try:
         snap = state.snapshot()
         summary = session.get_summary()
@@ -236,6 +446,7 @@ def download_report():
             "garbage": snap.get("garbage", {}).get("model_status"),
             "water_quality": snap.get("water_quality", {}).get("model_status"),
         }
+        summary = filter_summary(summary, plan_key)
 
         fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
         os.close(fd)
@@ -262,16 +473,31 @@ def download_report():
 
 # ── Socket events ────────────────────────────────────────────
 @socketio.on("connect")
-def on_connect():
-    emit("state_update", state.snapshot())
+def on_connect(auth_data=None):
+    # Same login session cookie as the HTTP routes
+    plan_key = current_plan()
+    if plan_key is None:
+        raise ConnectionRefusedError("login_required")
+    user = current_user()
+    with _viewers_lock:
+        _viewers[request.sid] = {"user_id": user["id"] if user else None, "plan": plan_key}
+    emit("state_update", filter_state(state.snapshot(), plan_key))
+
+
+@socketio.on("disconnect")
+def on_disconnect(*_args):
+    with _viewers_lock:
+        _viewers.pop(request.sid, None)
 
 
 @socketio.on("start_detection")
 def start_detection():
     global _vision_thread
     if not state.data["running"]:
+        with _viewers_lock:
+            plan_key = _viewers.get(request.sid, {}).get("plan")
         session.start()
-        _vision_thread = threading.Thread(target=vision_loop, daemon=True)
+        _vision_thread = threading.Thread(target=vision_loop, args=(plan_key,), daemon=True)
         _vision_thread.start()
         emit("detection_started", {"message": "Detection started"})
 
@@ -286,10 +512,9 @@ def stop_detection():
 @socketio.on("start_water_test")
 def start_water_test():
     water.start_test()
-    # Broadcast (not the request-scoped `emit`) so every connected
-    # dashboard reflects the test starting, matching how regular water
-    # readings are pushed via water.on_update.
-    socketio.emit("state_update", state.snapshot())
+    # Broadcast so every connected dashboard reflects the test starting,
+    # matching how regular water readings are pushed via water.on_update.
+    broadcast_state()
 
 
 def main():
@@ -298,20 +523,46 @@ def main():
     print("=" * 60)
     print(f"  Camera source : {settings.CAMERA_SOURCE} -> {camera.source} ({camera.type})")
     print(f"  Sensor source : {settings.SENSOR_SOURCE}")
+    if settings.DEMO_MODE:
+        print(f"  Accounts      : DEMO_MODE — no login required, plan '{settings.ACTIVE_PLAN}'")
+    else:
+        print(f"  Accounts      : login required ({len(db.list_users())} users in {settings.DB_PATH.name})")
+        if not any(u["is_admin"] for u in db.list_users()):
+            print("  No admin yet  : run 'python manage.py create-admin'")
+    if settings.SECRET_KEY_GENERATED:
+        print("  WARNING: SECRET_KEY not set in .env — using a random key; "
+              "everyone is logged out on restart")
+    # Each user has their own plan, so every model may be needed
     crowd.load()
     drowning.load()
     garbage.load()
     print(f"  Crowd model   : {crowd.model_status}")
     print(f"  Drowning model: {drowning.model_status}")
     print(f"  Garbage model : {garbage.model_status}")
+    if hasattr(garbage, "status_summary"):
+        print(f"  Component 4   : {garbage.status_summary()}")
+        print(f"  C4 full rate  : {'ON (best for throw/drop)' if _C4_FULL_RATE else 'off (set C4_FULL_RATE=1 for throw/drop demo)'}")
+        import atexit
+        atexit.register(garbage.close)
     water.start()
     print(f"  Water model   : {water.predictor.model_status}")
     print("=" * 60)
-    print(f"  Dashboard: http://localhost:{settings.PORT}")
+    dash_url = f"http://localhost:{settings.PORT}"
+    print(f"  Dashboard: {dash_url}")
+
+    def auto_open():
+        time.sleep(1.5)
+        import webbrowser
+        print(f"\n[+] Opening integrated dashboard at {dash_url} ...\n")
+        webbrowser.open(dash_url)
+
+    threading.Thread(target=auto_open, daemon=True).start()
+
     socketio.run(
         app, host=settings.HOST, port=settings.PORT,
         debug=False, allow_unsafe_werkzeug=True,
     )
+
 
 
 if __name__ == "__main__":

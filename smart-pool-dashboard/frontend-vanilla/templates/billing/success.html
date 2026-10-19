@@ -1,0 +1,151 @@
+{% extends "auth/base.html" %}
+{% import "auth/_plan_ui.html" as ui with context %}
+{% block title %}Payment{% endblock %}
+{% block content %}
+{# Links point to this host when the visitor is the logged-in owner of the
+   order, otherwise to APP_BASE_URL (where they are normally signed in). #}
+{% set dash_url = url_for('index') if is_owner else app_base_url ~ '/' %}
+{% set account_url = url_for('auth.account') if is_owner else app_base_url ~ '/account' %}
+{% set pricing_url = url_for('auth.pricing') if is_owner else app_base_url ~ '/pricing' %}
+
+{% if order is none %}
+<section class="card auth-card pay-card">
+  <div class="pay-icon pay-icon-warn">{{ ui.icon_lock(28) }}</div>
+  <h2 class="auth-title">We couldn't find this payment</h2>
+  <p class="auth-sub">{% if order_id %}Order <span class="mono">{{ order_id }}</span> is unknown.{% else %}No order was given.{% endif %}
+    If you just paid, your plan is activated as soon as PayHere confirms it — check your account.</p>
+  <div class="account-actions pay-actions">
+    <a class="btn btn-primary" href="{{ account_url }}">View Account</a>
+    <a class="btn btn-ghost" href="{{ dash_url }}">Open dashboard</a>
+  </div>
+</section>
+{% else %}
+{% set plan = plans[order['plan']] %}
+<section class="card auth-card pay-card" id="payCard"
+         data-order-id="{{ order['order_id'] }}" data-plan="{{ order['plan'] }}"
+         data-plan-name="{{ plan.name }}" data-owner="{{ 1 if is_owner else 0 }}"
+         data-dashboard-url="{{ dash_url }}">
+
+  <!-- waiting for PayHere's notification -->
+  <div class="pay-state" id="payWaiting">
+    <div class="pay-spinner" aria-hidden="true"></div>
+    <h2 class="auth-title">Confirming payment…</h2>
+    <p class="auth-sub">Payment received — activating your {{ plan.name }} plan.
+      Waiting for PayHere to confirm order <span class="mono">{{ order['order_id'] }}</span>;
+      this usually takes a few seconds.</p>
+  </div>
+
+  <!-- paid -->
+  <div class="pay-state" id="paySuccess" hidden>
+    <div class="pay-icon pay-icon-ok">
+      <svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+    </div>
+    <h2 class="auth-title pay-welcome">Welcome to AquaGuard {{ plan.name|upper }}</h2>
+    <p class="auth-sub">Your subscription is active. Now unlocked:</p>
+    <ul class="feature-list pay-features">
+      {% for fkey in features if fkey in plan.features %}
+      <li class="yes">{{ ui.icon_check() }}<span>{{ features[fkey] }}</span></li>
+      {% endfor %}
+    </ul>
+    <p class="pay-renews" id="payRenews" hidden>Renews on <b class="mono" id="payRenewsDate"></b></p>
+    {% if is_owner %}
+    <div class="account-actions pay-actions">
+      <a class="btn btn-primary" href="{{ dash_url }}">Go to Dashboard</a>
+      <a class="btn btn-ghost" href="{{ account_url }}">View Account</a>
+    </div>
+    <p class="pay-redirect" id="payRedirect">Opening the dashboard in <b id="payCountdown">4</b> s…</p>
+    {% else %}
+    <p class="auth-sub pay-elsewhere">You're not signed in on this address. Open the dashboard where you
+      normally sign in — your new plan is already active there.</p>
+    <div class="account-actions pay-actions">
+      <a class="btn btn-primary" href="{{ dash_url }}">Open dashboard</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- still pending after 45 s -->
+  <div class="pay-state" id="paySlow" hidden>
+    <div class="pay-icon pay-icon-warn">
+      <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+    </div>
+    <h2 class="auth-title">Still confirming</h2>
+    <p class="auth-sub">PayHere hasn't confirmed order <span class="mono">{{ order['order_id'] }}</span> yet.
+      Your plan switches to {{ plan.name }} automatically once it does — check again in a moment.</p>
+    <div class="account-actions pay-actions">
+      <button type="button" class="btn btn-primary" id="payCheckAgain">Check again</button>
+      <a class="btn btn-ghost" href="{{ account_url }}">View Account</a>
+    </div>
+  </div>
+
+  <!-- failed / cancelled -->
+  <div class="pay-state" id="payFailed" hidden>
+    <div class="pay-icon pay-icon-bad">
+      <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </div>
+    <h2 class="auth-title">Payment not completed</h2>
+    <p class="auth-sub">PayHere reported the payment as <b id="payFailedStatus"></b>.
+      You have not been upgraded and nothing was charged for this order.</p>
+    <div class="account-actions pay-actions">
+      <a class="btn btn-primary" href="{{ pricing_url }}">Try again</a>
+      <a class="btn btn-ghost" href="{{ dash_url }}">Dashboard</a>
+    </div>
+  </div>
+</section>
+
+<script>
+// The plan only changes once PayHere confirmed the payment (notify or the
+// Retrieval API, which /billing/status consults), so poll every 2 s until
+// it is paid or failed; after 45 s offer "Check again" instead of spinning.
+(function () {
+  const card = document.getElementById('payCard');
+  const orderId = card.dataset.orderId;
+  const isOwner = card.dataset.owner === '1';
+  const GIVE_UP_MS = 45000;
+  let started = Date.now();
+  document.getElementById('payCheckAgain').addEventListener('click', () => {
+    started = Date.now();
+    show('payWaiting');
+    poll();
+  });
+  const show = (id) => {
+    for (const el of card.querySelectorAll('.pay-state')) el.hidden = el.id !== id;
+  };
+
+  function paid(info) {
+    show('paySuccess');
+    if (info.renews_at) {
+      document.getElementById('payRenewsDate').textContent = info.renews_at;
+      document.getElementById('payRenews').hidden = false;
+    }
+    if (!isOwner) return;
+    // The header badge was rendered before the upgrade — update it
+    if (window.setNavPlan) window.setNavPlan(info.plan, info.plan_name);
+    let left = 4;
+    const countdown = document.getElementById('payCountdown');
+    const timer = setInterval(() => {
+      left -= 1;
+      countdown.textContent = left;
+      if (left <= 0) { clearInterval(timer); window.location.href = card.dataset.dashboardUrl; }
+    }, 1000);
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch('/billing/status/' + encodeURIComponent(orderId), { cache: 'no-store' });
+      if (r.ok) {
+        const info = await r.json();
+        if (info.status === 'paid') return paid(info);
+        if (['failed', 'cancelled', 'chargedback'].includes(info.status)) {
+          document.getElementById('payFailedStatus').textContent = info.status;
+          return show('payFailed');
+        }
+      }
+    } catch (e) { /* network blip — keep polling */ }
+    if (Date.now() - started >= GIVE_UP_MS) return show('paySlow');
+    setTimeout(poll, 2000);
+  }
+  poll();
+})();
+</script>
+{% endif %}
+{% endblock %}
