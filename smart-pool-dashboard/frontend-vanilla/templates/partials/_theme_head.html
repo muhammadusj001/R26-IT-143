@@ -1,0 +1,4 @@
+{# Apply the saved theme before first paint (no light/dark flash). Light is the default. #}
+<script>
+  try { if (localStorage.getItem('aquaguard.theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) {}
+</script>

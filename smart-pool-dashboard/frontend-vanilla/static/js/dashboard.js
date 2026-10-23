@@ -1,0 +1,493 @@
+// ═══════════════════════════════════════════════════════════
+// R26-IT-143 — Unified Dashboard
+// Socket patterns preserved from Component 3's dashboard.js,
+// extended to update all four module cards from one state object.
+// ═══════════════════════════════════════════════════════════
+
+const socket = io();
+
+// ── Connection ──────────────────────────────────────────────
+socket.on('connect', () => setConn(true));
+socket.on('disconnect', () => setConn(false));
+// The server refuses the socket when the login session is missing/expired
+socket.on('connect_error', (err) => {
+  if (err && err.message === 'login_required') window.location.href = '/login?next=/';
+});
+
+function setConn(ok) {
+  // Navbar indicator (#connDot / #connText) and its copy in the mobile panel
+  window.setNavConnection(ok);
+}
+
+// ── Controls ────────────────────────────────────────────────
+function startDetection() { socket.emit('start_detection'); }
+function stopDetection()  { socket.emit('stop_detection'); }
+
+// ── Water quality test (popup) ─────────────────────────────
+// The backend (core/water_test.py) discards the first `warmup` seconds
+// (sensors settling) then medians samples up to `duration` seconds into
+// one result with a SAFE/WARNING/CRITICAL classification and
+// human-readable reasons. This just polls that progress via the normal
+// state_update stream and renders it in a popup; the countdown text ticks
+// locally every 500ms for smoothness between server pushes, but every
+// number that actually matters (samples collected, status, result) comes
+// straight from the server, never estimated client-side.
+let testModalOpen = false;
+let testClientStartMs = null;
+let testTickHandle = null;
+let testLatest = null; // last known server "test" object
+
+function startWaterTest() {
+  socket.emit('start_water_test');
+  testModalOpen = true;
+  testClientStartMs = Date.now();
+  testLatest = { status: 'running', elapsed: 0, duration: 60, warmup: 20, samples_collected: 0, result: null };
+  document.getElementById('testModalOverlay').hidden = false;
+  renderTestModal();
+  if (testTickHandle) clearInterval(testTickHandle);
+  testTickHandle = setInterval(renderTestModal, 500);
+}
+
+function closeTestModal() {
+  testModalOpen = false;
+  document.getElementById('testModalOverlay').hidden = true;
+  if (testTickHandle) { clearInterval(testTickHandle); testTickHandle = null; }
+}
+
+// Called from updateDashboard() on every state_update — keeps testLatest
+// current even while the popup is closed, so reopening (or a fresh
+// connect) shows the real current/last state rather than nothing.
+function onTestState(test) {
+  if (!test) return;
+  testLatest = test;
+  if (testModalOpen) renderTestModal();
+}
+
+function renderTestModal() {
+  if (!testLatest) return;
+  const body = document.getElementById('testModalBody');
+
+  if (testLatest.status === 'complete') {
+    body.innerHTML = renderTestResult(testLatest.result);
+    return;
+  }
+
+  const duration = testLatest.duration;
+  const warmup = testLatest.warmup;
+  // Smooth local countdown between server pushes, floored by the
+  // server's own last-known elapsed so it never runs backwards.
+  const localElapsed = testClientStartMs ? (Date.now() - testClientStartMs) / 1000 : testLatest.elapsed;
+  const elapsed = Math.min(Math.max(localElapsed, testLatest.elapsed), duration);
+  const inWarmup = elapsed < warmup;
+  const remaining = Math.max(0, Math.ceil(duration - elapsed));
+  const pct = Math.min(100, (elapsed / duration) * 100);
+
+  body.innerHTML = `
+    <div class="test-phase">${inWarmup ? 'Warming up sensors…' : 'Collecting readings…'}</div>
+    <div class="test-progress-bar"><div class="test-progress-fill" style="width:${pct}%"></div></div>
+    <div class="test-meta">
+      <span>${Math.floor(elapsed)}s / ${duration}s</span>
+      <span>${remaining}s remaining</span>
+    </div>
+    <div class="test-samples">${inWarmup
+      ? 'Readings will start once warm-up finishes'
+      : testLatest.samples_collected + ' sample(s) collected so far'}</div>
+  `;
+}
+
+function renderTestResult(result) {
+  if (!result) return '<div class="test-phase">No result.</div>';
+  const cls = result.status === 'SAFE' ? 'safe' : (result.status === 'CRITICAL' ? 'danger' : 'warn');
+  const labels = { ph: 'pH', temperature: 'Temp °C', chlorine: 'Cl ppm', turbidity: 'NTU', tds: 'TDS' };
+  const rows = Object.keys(labels).map((k) => `
+    <div class="stat"><span class="stat-val">${fmt(result[k])}</span><span class="stat-label">${labels[k]}</span></div>
+  `).join('');
+  const reasons = (result.reasons && result.reasons.length)
+    ? '<ul class="test-reasons">' + result.reasons.map((r) => `<li>${r}</li>`).join('') + '</ul>'
+    : '<p class="test-reasons-none">No issues — every parameter is within range.</p>';
+
+  return `
+    <div class="test-result-status">
+      <span class="pill ${cls}">${result.status}</span>
+      <span class="test-sample-count">${result.sample_count} sample(s) used</span>
+    </div>
+    <div class="stat-row wq test-result-grid">${rows}</div>
+    ${reasons}
+    <button class="btn btn-start" onclick="startWaterTest()">Run Again</button>
+  `;
+}
+
+// Client-side session-stats tracking (peak swimmers / alerts this
+// session). The backend already tracks a fuller session summary for
+// the PDF report (see /api/session/summary), but that isn't part of
+// the live state broadcast — these two small counters just mirror
+// what's visible in the state updates this page has already received,
+// reset each time a new session starts.
+let peakSwimmers = 0;
+let sessionAlertCount = 0;
+let lastSeenAlertKey; // undefined = no state observed yet this session
+
+socket.on('detection_started', () => {
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  peakSwimmers = 0;
+  sessionAlertCount = 0;
+  lastSeenAlertKey = undefined;
+  setText('peakSwimmers', 0);
+  setText('sessionAlerts', 0);
+});
+socket.on('detection_stopped', () => {
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+});
+socket.on('camera_error', (d) => {
+  const ov = document.getElementById('cameraOverlay');
+  ov.style.display = 'flex';
+  ov.textContent = d.message;
+});
+
+// ── Frame + state updates ───────────────────────────────────
+socket.on('frame_update', (data) => {
+  const feed = document.getElementById('cameraFeed');
+  feed.src = 'data:image/jpeg;base64,' + data.frame;
+  document.getElementById('cameraOverlay').style.display = 'none';
+  updateDashboard(data.state);
+});
+socket.on('state_update', updateDashboard);
+
+socket.on('drowning_alert', () => {
+  flashCard('drowningCard');
+  playBeep();
+});
+
+// ── Renderers ───────────────────────────────────────────────
+// Locked modules arrive from the server already emptied; this only
+// shows their locked overlay, the plan badge and the report lock. The
+// page is rendered locked already — this keeps it in sync when the plan
+// changes while the dashboard is open.
+const PLAN_LOCKS = {
+  drowning: 'drowningCard', garbage: 'garbageCard',
+  decision_engine: 'decisionCard', reports: 'reportBtn',
+};
+// ── One-time "plan upgraded" toast ─────────────────────────
+// Remembers the last plan this browser saw per user; when the plan now
+// unlocks features the old one didn't, says so once.
+const AG = window.AQUAGUARD || {};
+const PLAN_SEEN_KEY = 'aquaguard.lastPlan.' + AG.viewer;
+function readSeenPlan() {
+  try { return localStorage.getItem(PLAN_SEEN_KEY); } catch (e) { return null; }
+}
+function rememberPlan(key) {
+  try { localStorage.setItem(PLAN_SEEN_KEY, key); } catch (e) { /* storage blocked */ }
+}
+function joinWords(words) {
+  return words.length < 2 ? words.join('')
+    : words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1];
+}
+function checkPlanUpgrade(newKey) {
+  if (!newKey || !AG.plans || !AG.plans[newKey]) return;
+  const oldKey = readSeenPlan();
+  rememberPlan(newKey);
+  if (!oldKey || oldKey === newKey || !AG.plans[oldKey]) return;  // first visit / no change
+  const gained = AG.plans[newKey].features.filter(f => !AG.plans[oldKey].features.includes(f));
+  if (!gained.length) return;  // downgrade
+  const words = gained.map(f => (AG.featureShort && AG.featureShort[f]) || f);
+  showPlanToast('Your plan is now ' + AG.plans[newKey].name.toUpperCase() + ' — '
+    + joinWords(words) + ' unlocked.');
+}
+let planToastTimer;
+function showPlanToast(text) {
+  document.getElementById('planToastText').textContent = text;
+  document.getElementById('planToast').hidden = false;
+  clearTimeout(planToastTimer);
+  planToastTimer = setTimeout(hidePlanToast, 9000);
+}
+function hidePlanToast() { document.getElementById('planToast').hidden = true; }
+checkPlanUpgrade(AG.plan);
+
+function applyPlan(plan) {
+  if (!plan || !plan.features) return;
+  checkPlanUpgrade(plan.key);  // plan changed while the dashboard is open
+  window.setNavPlan(plan.key, plan.name);  // navbar badge(s) + Upgrade button
+  for (const [feature, id] of Object.entries(PLAN_LOCKS)) {
+    document.getElementById(id).classList.toggle('locked', !plan.features.includes(feature));
+  }
+}
+
+function updateDashboard(s) {
+  if (!s) return;
+  applyPlan(s.plan);
+  setText('fps', s.fps);
+  setText('frameNum', s.frame_num);
+  setText('sessionTime', s.session_time);
+
+  // Session stats strip (client-side running totals, reset on start)
+  if (typeof s.crowd.swimmer_count === 'number') {
+    peakSwimmers = Math.max(peakSwimmers, s.crowd.swimmer_count);
+  }
+  setText('peakSwimmers', peakSwimmers);
+  const currentTopAlertKey = s.alerts.length
+    ? s.alerts[0].time + '|' + s.alerts[0].module + '|' + s.alerts[0].message
+    : null;
+  if (lastSeenAlertKey === undefined) {
+    // First observation this session: establish a baseline without
+    // counting it (avoids counting alerts that already existed before
+    // this page/session started).
+    lastSeenAlertKey = currentTopAlertKey;
+  } else if (currentTopAlertKey !== null && currentTopAlertKey !== lastSeenAlertKey) {
+    sessionAlertCount++;
+    lastSeenAlertKey = currentTopAlertKey;
+  }
+  setText('sessionAlerts', sessionAlertCount);
+
+  // Crowd
+  setText('swimmerCount', s.crowd.swimmer_count);
+  setText('densityLevel', s.crowd.density_level);
+  setText('batherLoad', s.crowd.bather_load);
+  setText('maintRec', s.crowd.maintenance_recommendation);
+  setText('crowdModel', s.crowd.model_status);
+
+  // Drowning
+  setText('swimming', s.drowning.swimming);
+  setText('drowningCount', s.drowning.drowning);
+  setText('outOfWater', s.drowning.out_of_water);
+  setText('totalDrownAlerts', s.drowning.total_alerts);
+  setText('drownModel', s.drowning.model_status);
+  setPill('drownStatus', s.drowning.status, s.drowning.status === 'SAFE' ? 'safe' : 'danger');
+
+  // Garbage
+  setText('garbageCount', s.garbage.objects_detected);
+  setText('garbageStatus', s.garbage.alert_status);
+  setText('garbageEvents', s.garbage.total_events);
+  setText('garbageModel', s.garbage.model_status);
+  setText('garbageLabels', s.garbage.object_labels.length
+    ? s.garbage.object_labels.join(', ') : 'No objects detected');
+
+  // Garbage intent (source + throwing-motion intent classification)
+  const gRisk = s.garbage.risk_level || 'NORMAL';
+  setPill('garbageRisk', gRisk,
+    gRisk === 'HIGH' ? 'danger' : (gRisk === 'MEDIUM' ? 'warn' : 'safe'));
+  if (s.garbage.alert_status === 'ALERT') {
+    setText('garbageSource', 'Source: ' + s.garbage.source);
+    setText('garbageIntent',
+      ' · Intent: ' + s.garbage.intent + ' (' + s.garbage.intent_confidence + '%)');
+  } else {
+    setText('garbageSource', 'No intrusion detected');
+    setText('garbageIntent', '');
+  }
+  updateGarbageIncidents(s.garbage);
+
+  // Water quality
+  const fallbackFields = new Set(s.water_quality.fallback_fields || []);
+  setSensorVal('ph', 'ph', s.water_quality.ph, fallbackFields);
+  setSensorVal('temperature', 'temperature', s.water_quality.temperature, fallbackFields);
+  setText('chlorine', fmt(s.water_quality.chlorine)); // always a placeholder — no chlorine sensor at all, unrelated to per-cycle fallback
+  setSensorVal('turbidity', 'turbidity', s.water_quality.turbidity, fallbackFields);
+  setSensorVal('tds', 'tds', s.water_quality.tds, fallbackFields);
+  if (s.water_quality.simulated) {
+    setPill('sensorConn', 'SIMULATED', 'info');
+  } else if (s.water_quality.warming_up) {
+    setPill('sensorConn', 'WARMING UP', 'warn');
+  } else if (s.water_quality.sensor_connected) {
+    setPill('sensorConn', 'CONNECTED', 'safe');
+  } else {
+    setPill('sensorConn', 'OFFLINE', 'danger');
+  }
+  setText('waterModel', s.water_quality.model_status);
+  const w = s.water_quality.status;
+  setPill('waterStatus', w, w === 'SAFE' ? 'safe' : (w === 'CRITICAL' ? 'danger' : 'warn'));
+  onTestState(s.water_quality.test);
+
+  // Decision engine
+  const risk = document.getElementById('overallRisk');
+  risk.textContent = s.decision.overall_risk;
+  risk.className = 'risk-badge ' + s.decision.overall_risk.toLowerCase();
+  setPill('maintUrgency', s.decision.maintenance_urgency,
+    s.decision.maintenance_urgency === 'LOW' ? 'safe'
+      : (s.decision.maintenance_urgency === 'IMMEDIATE' ? 'danger'
+        : (s.decision.maintenance_urgency === 'HIGH' ? 'high' : 'warn')));
+  const notes = document.getElementById('decisionNotes');
+  notes.innerHTML = s.decision.notes.length
+    ? s.decision.notes.map(n => `<li>${n}</li>`).join('')
+    : '<li class="muted">No cross-module concerns</li>';
+
+  // Alerts
+  const list = document.getElementById('alertList');
+  list.innerHTML = s.alerts.length
+    ? s.alerts.map(a =>
+        `<li class="alert-item ${a.severity}"><b>${a.time}</b> · ${a.module}: ${a.message}</li>`
+      ).join('')
+    : '<li class="muted">No alerts yet</li>';
+}
+
+// ── Garbage incidents (plain-language explanation, C4 v2.3) ─
+// One-line meanings for the (i) tooltip. Titles come from the backend's
+// event_legend when present; these are the fallback and the meanings.
+const INCIDENT_MEANINGS = {
+  GARBAGE_IN_POOL: ['Garbage on the water surface', 'Garbage confirmed floating in the pool.'],
+  SUBMERGED_GARBAGE: ['Garbage under the water', 'Garbage seen below the surface - remove it from the floor.'],
+  SUNK_OBJECT: ['Object sank', 'Something vanished inside the pool (often with a splash) - probably on the floor.'],
+  THROW_NO_FLOATING_OBJECT: ['Throw seen, nothing floating', 'Someone made a throwing movement but nothing floated - it may have sunk.'],
+  UNDERWATER_OBJECT: ['New object on the pool floor', 'Something new has stayed still on the pool floor for several seconds.'],
+};
+let lastLegendKey = null;
+let lastFeedKey = null;
+
+function updateGarbageIncidents(g) {
+  g = g || {};
+  setText('garbageSurface', num(g.surface_count));
+  setText('garbageUnderwater', num(g.underwater_count));
+
+  const action = (typeof g.human_action === 'string' && g.human_action) ? g.human_action : '–';
+  const actEl = document.getElementById('garbageAction');
+  if (actEl) {
+    actEl.textContent = action;
+    actEl.classList.toggle('throwing', action.toUpperCase().startsWith('THROWING'));
+  }
+
+  // Legend tooltip — rebuilt only when the legend changes
+  const legend = (g.event_legend && typeof g.event_legend === 'object') ? g.event_legend : {};
+  const legendKey = JSON.stringify(legend);
+  if (legendKey !== lastLegendKey) {
+    lastLegendKey = legendKey;
+    const types = Object.keys(INCIDENT_MEANINGS);
+    Object.keys(legend).forEach(t => { if (!types.includes(t)) types.push(t); });
+    const tip = document.getElementById('garbageLegend');
+    if (tip) {
+      tip.innerHTML = '<b class="info-tip-head">Incident = one confirmed garbage event</b>' +
+        types.map(t => {
+          const title = legend[t] || (INCIDENT_MEANINGS[t] || [t])[0];
+          const meaning = (INCIDENT_MEANINGS[t] || [])[1] || '';
+          return `<span class="info-tip-row"><b>${esc(title)}</b>${meaning ? ' — ' + esc(meaning) : ''}</span>`;
+        }).join('');
+    }
+  }
+
+  // Newest 5 incidents — re-rendered only when the feed changes so the
+  // thumbnails don't reload on every frame.
+  const feed = Array.isArray(g.event_feed)
+    ? g.event_feed.filter(ev => ev && typeof ev === 'object').slice(0, 5) : [];
+  const feedKey = JSON.stringify(feed);
+  if (feedKey === lastFeedKey) return;
+  lastFeedKey = feedKey;
+  const list = document.getElementById('garbageFeed');
+  if (!list) return;
+  if (!feed.length) {
+    list.innerHTML = '<li class="muted">No incidents yet</li>';
+    return;
+  }
+  list.innerHTML = feed.map(ev => {
+    const risk = String(ev.risk || '').toUpperCase();
+    const riskCls = risk === 'HIGH' ? 'danger' : (risk === 'MEDIUM' ? 'warn' : '');
+    const pos = ev.position === 'underwater' ? 'under water'
+      : (ev.position === 'surface' ? 'surface' : (ev.position || ''));
+    const meta = [ev.object, pos].filter(Boolean).map(esc).join(' · ');
+    const snap = ev.snapshot ? '/api/garbage/snapshot/' + encodeURIComponent(ev.snapshot) : '';
+    return `<li class="incident-item" title="${esc(ev.explanation || ev.message || '')}">` +
+      (snap ? `<a class="incident-thumb" href="${snap}" target="_blank" rel="noopener"><img src="${snap}" alt="incident snapshot" loading="lazy" onerror="this.parentNode.style.display='none'"></a>` : '') +
+      '<div class="incident-body">' +
+        `<div class="incident-top"><span class="incident-time">${esc(ev.time || '')}</span>` +
+        `<b class="incident-title">${esc(ev.title || ev.type || 'Incident')}</b>` +
+        (risk ? `<span class="pill ${riskCls}">${esc(risk)}</span>` : '') + '</div>' +
+        (meta ? `<div class="incident-meta">${meta}</div>` : '') +
+        (ev.intent_text ? `<div class="incident-intent">${esc(ev.intent_text)}</div>` : '') +
+        (ev.reason ? `<div class="incident-reason">${esc(ev.reason)}</div>` : '') +
+      '</div></li>';
+  }).join('');
+}
+
+// ── PDF report ──────────────────────────────────────────────
+function generateReport() {
+  const btn = document.getElementById('reportBtn');
+  // Locked on plans without "reports" (the server also answers 403)
+  if (btn.classList.contains('locked')) { window.location.href = '/pricing'; return; }
+  if (!btn) return;
+  const label = btn.querySelector('.btn-label');
+  const err = document.getElementById('reportError');
+
+  btn.disabled = true;
+  if (label) label.textContent = 'Generating…';
+  if (err) { err.textContent = ''; err.classList.remove('show'); }
+
+  fetch('/api/report')
+    .then(async (resp) => {
+      if (!resp.ok) {
+        let msg = 'Report generation failed';
+        try {
+          const data = await resp.json();
+          if (data && data.error === 'upgrade_required') {
+            msg = 'Reports need the ' + data.required_plan.charAt(0).toUpperCase()
+              + data.required_plan.slice(1) + ' plan';
+          } else if (data && data.error) msg = data.error;
+        } catch (e) { /* keep default message */ }
+        throw new Error(msg);
+      }
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const match = /filename="?([^";]+)"?/.exec(cd);
+      const filename = match ? match[1] : 'pool_session_report.pdf';
+      const blob = await resp.blob();
+      return { blob, filename };
+    })
+    .then(({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    })
+    .catch((e) => {
+      if (err) {
+        err.textContent = e.message || 'Report generation failed';
+        err.classList.add('show');
+      }
+    })
+    .finally(() => {
+      btn.disabled = false;
+      if (label) label.textContent = 'Generate Report';
+    });
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+// Renders one water-quality stat, marking it visibly (amber + tooltip)
+// when the backend substituted a safe default because that one sensor's
+// line errored this cycle — the value is real, this is a fallback for a
+// single field, never the whole reading, but it must never be shown as
+// if it were a live measurement.
+function setSensorVal(id, key, value, fallbackFields) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = fmt(value);
+  const isFallback = fallbackFields.has(key);
+  el.classList.toggle('fallback', isFallback);
+  el.title = isFallback ? 'Safe default — this sensor errored this cycle' : '';
+}
+
+function setText(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
+function setPill(id, text, cls) {
+  const e = document.getElementById(id);
+  if (e) { e.textContent = text; e.className = 'pill ' + cls; }
+}
+function fmt(v) { return (v === null || v === undefined) ? '–' : v; }
+function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
+function esc(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function flashCard(id) {
+  const c = document.getElementById(id);
+  c.classList.add('flash');
+  setTimeout(() => c.classList.remove('flash'), 1500);
+}
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    o.frequency.value = 1000;
+    o.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.4);
+  } catch (e) { /* audio not available */ }
+}
